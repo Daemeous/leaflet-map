@@ -524,7 +524,8 @@ function showError(msg) {
   b.style.display = "block";
 }
 
-Papa.parse(CORS_PROXY + encodeURIComponent(SHEET_CSV_URL), {
+const bustUrl = SHEET_CSV_URL + "&cachebust=" + Date.now();
+Papa.parse(CORS_PROXY + encodeURIComponent(bustUrl), {
   download: true,
   header: true,
   skipEmptyLines: true,
