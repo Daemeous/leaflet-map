@@ -366,7 +366,8 @@
 
 <script>
 // ── CONFIG — update SHEET_CSV_URL when the sheet is public ──────────────────
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1TaIDEOszLSBN903cQ_vp6AhQLX51IB73cIaai9OYLCM/export?format=csv&gid=0";
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRbbW7Fx0K_PsgqRR6joNV4lzOdn1Q7AQY2bieG_L5-Rypu7_ayMNUNx3c0diPGN2MLHkUDB7F8vapc/pub?gid=887349948&single=true&output=csv";
+const CORS_PROXY    = "https://corsproxy.io/?url=";
 // ────────────────────────────────────────────────────────────────────────────
 
 const STATUS_COLOURS = {
@@ -523,7 +524,8 @@ function showError(msg) {
   b.style.display = "block";
 }
 
-Papa.parse(SHEET_CSV_URL, {
+const bustUrl = SHEET_CSV_URL + "&cachebust=" + Date.now();
+Papa.parse(CORS_PROXY + encodeURIComponent(bustUrl), {
   download: true,
   header: true,
   skipEmptyLines: true,
