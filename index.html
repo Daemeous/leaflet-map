@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leafletting Map</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f1117;
+    --panel:     #181c27;
+    --border:    #2a2f3f;
+    --text:      #e8eaf0;
+    --muted:     #7a8099;
+    --accent:    #4f8ef7;
+    --green:     #3ecf6e;
+    --yellow:    #f5c842;
+    --red:       #f75f5f;
+    --panel-w:   310px;
+  }
+
+  html, body { height: 100%; font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+  /* ── Layout ── */
+  #app { display: flex; height: 100vh; }
+
+  #sidebar {
+    width: var(--panel-w);
+    min-width: var(--panel-w);
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 1000;
+    overflow: hidden;
+  }
+
+  #map-wrap { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+
+  /* ── Sidebar header ── */
+  .sidebar-head {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-head h1 {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .sidebar-head p {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ── Stats bar ── */
+  #stats {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat {
+    flex: 1;
+    padding: 10px 12px;
+    text-align: center;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+  .stat-num.green { color: var(--green); }
+  .stat-num.yellow { color: var(--yellow); }
+  .stat-num.red { color: var(--red); }
+
+  /* ── Filter sections ── */
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
+  .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+  .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .filter-section { margin-bottom: 20px; }
+  .filter-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* Status toggles */
+  .status-toggles { display: flex; flex-direction: column; gap: 6px; }
+  .status-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    text-align: left;
+    width: 100%;
+  }
+  .status-toggle:hover { background: rgba(255,255,255,0.04); }
+  .status-toggle.active { border-color: transparent; }
+  .status-toggle.inactive { opacity: 0.35; }
+  .status-toggle.active.s-complete  { background: rgba(62,207,110,0.12); border-color: rgba(62,207,110,0.35); }
+  .status-toggle.active.s-progress  { background: rgba(245,200,66,0.12); border-color: rgba(245,200,66,0.35); }
+  .status-toggle.active.s-notstarted{ background: rgba(247,95,95,0.12);  border-color: rgba(247,95,95,0.35); }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .dot-red    { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .toggle-count {
+    margin-left: auto;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Ward filters */
+  .ward-search {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 7px 10px;
+    margin-bottom: 8px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .ward-search:focus { border-color: var(--accent); }
+  .ward-search::placeholder { color: var(--muted); }
+
+  .ward-all-btn {
+    width: 100%;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .ward-all-btn:hover { color: var(--text); border-color: var(--muted); }
+
+  .ward-list { display: flex; flex-direction: column; gap: 3px; }
+  .ward-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    background: rgba(255,255,255,0.03);
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    user-select: none;
+  }
+  .ward-chip:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+  .ward-chip.selected {
+    background: rgba(79,142,247,0.12);
+    border-color: rgba(79,142,247,0.35);
+    color: var(--text);
+  }
+  .ward-chip-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* ── Loading overlay ── */
+  #loading {
+    position: absolute;
+    inset: 0;
+    background: rgba(15,17,23,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(4px);
+  }
+  #loading.hidden { display: none; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
+
+  /* ── Error banner ── */
+  #error-banner {
+    display: none;
+    position: absolute;
+    top: 12px; left: 50%; transform: translateX(-50%);
+    background: #3a1a1a;
+    border: 1px solid #7a2a2a;
+    color: #f09090;
+    font-size: 12px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    z-index: 9998;
+    max-width: 420px;
+    text-align: center;
+  }
+
+  /* ── Leaflet dark overrides ── */
+  .leaflet-container { background: #1a1f2e; }
+  .leaflet-tile { filter: brightness(0.7) saturate(0.6); }
+  .leaflet-control-zoom a {
+    background: var(--panel) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+  .leaflet-control-zoom a:hover { background: var(--border) !important; }
+  .leaflet-popup-content-wrapper {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .leaflet-popup-tip { background: var(--panel); }
+  .leaflet-popup-content { font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.6; margin: 12px 14px; }
+  .popup-street { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .popup-ward { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .popup-status {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.06em;
+    font-weight: 500;
+  }
+  .ps-complete   { background: rgba(62,207,110,0.15); color: var(--green); }
+  .ps-progress   { background: rgba(245,200,66,0.15); color: var(--yellow); }
+  .ps-notstarted { background: rgba(247,95,95,0.15);  color: var(--red); }
+
+  /* Mobile toggle */
+  #sidebar-toggle {
+    display: none;
+    position: absolute;
+    top: 12px; left: 12px;
+    z-index: 1001;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  @media (max-width: 640px) {
+    #sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform 0.25s; }
+    #sidebar.open { transform: translateX(0); }
+    #sidebar-toggle { display: block; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <aside id="sidebar">
+    <div class="sidebar-head">
+      <h1>Leafletting Map</h1>
+      <p>Filter roads by ward or completion status.</p>
+    </div>
+
+    <div id="stats">
+      <div class="stat">
+        <div class="stat-num green" id="stat-complete">0</div>
+        <div class="stat-label">Complete</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num yellow" id="stat-progress">0</div>
+        <div class="stat-label">In Progress</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num red" id="stat-notstarted">0</div>
+        <div class="stat-label">Not Started</div>
+      </div>
+    </div>
+
+    <div class="sidebar-scroll">
+      <div class="filter-section">
+        <div class="filter-label">Status</div>
+        <div class="status-toggles">
+          <button class="status-toggle active s-complete"   data-status="Complete"     onclick="toggleStatus(this)">
+            <span class="status-dot dot-green"></span> Complete
+            <span class="toggle-count" id="cnt-complete">0</span>
+          </button>
+          <button class="status-toggle active s-progress"   data-status="In Progress"  onclick="toggleStatus(this)">
+            <span class="status-dot dot-yellow"></span> In Progress
+            <span class="toggle-count" id="cnt-progress">0</span>
+          </button>
+          <button class="status-toggle active s-notstarted" data-status="Not started"  onclick="toggleStatus(this)">
+            <span class="status-dot dot-red"></span> Not Started
+            <span class="toggle-count" id="cnt-notstarted">0</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <div class="filter-label">Ward</div>
+        <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
+        <button class="ward-all-btn" onclick="selectAllWards()">Select / deselect all</button>
+        <div class="ward-list" id="ward-list"></div>
+      </div>
+    </div>
+  </aside>
+
+  <div id="map-wrap">
+    <button id="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+    <div id="map"></div>
+    <div id="loading"><div class="spinner"></div><p>Loading road data…</p></div>
+    <div id="error-banner"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<script>
+// ── CONFIG — update SHEET_CSV_URL when the sheet is public ──────────────────
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRbbW7Fx0K_PsgqRR6joNV4lzOdn1Q7AQY2bieG_L5-Rypu7_ayMNUNx3c0diPGN2MLHkUDB7F8vapc/pub?gid=887349948&single=true&output=csv";
+const CORS_PROXY    = "https://corsproxy.io/?url=";
+// ────────────────────────────────────────────────────────────────────────────
+
+const STATUS_COLOURS = {
+  "complete":    "#3ecf6e",
+  "in progress": "#f5c842",
+  "not started": "#f75f5f",
+};
+const STATUS_WEIGHT = { "complete": 4, "in progress": 4, "not started": 3 };
+
+function statusKey(s) { return (s || "").trim().toLowerCase(); }
+function colourFor(s) { return STATUS_COLOURS[statusKey(s)] || "#f75f5f"; }
+
+// ── Map init ─────────────────────────────────────────────────────────────────
+const map = L.map("map", { zoomControl: true }).setView([52.8, -2.12], 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let allRoads    = [];          // parsed rows with geometry
+let layerGroups = {};          // ward -> L.LayerGroup
+let activeStatus = new Set(["complete","in progress","not started"]);
+let activeWards  = new Set();
+let wardCounts   = {};
+
+// ── Parse WKT linestring(s) to Leaflet LatLng arrays ─────────────────────────
+function parseWKT(wkt) {
+  if (!wkt || wkt === "NOT_FOUND") return [];
+  return wkt.split("|").map(seg => {
+    seg = seg.trim();
+    if (!seg.startsWith("LINESTRING(")) return null;
+    const inner = seg.slice(11, -1);
+    return inner.split(",").map(pair => {
+      const [lon, lat] = pair.trim().split(" ").map(Number);
+      return isNaN(lat) ? null : [lat, lon];
+    }).filter(Boolean);
+  }).filter(a => a && a.length >= 2);
+}
+
+// ── Build popup HTML ──────────────────────────────────────────────────────────
+function popupHtml(row) {
+  const sk = statusKey(row.Status);
+  const cls = sk === "complete" ? "ps-complete" : sk === "in progress" ? "ps-progress" : "ps-notstarted";
+  return `<div class="popup-street">${row.Street}</div>
+          <div class="popup-ward">${row.Ward}</div>
+          <span class="popup-status ${cls}">${row.Status || "Not started"}</span>`;
+}
+
+// ── Render / re-render lines ──────────────────────────────────────────────────
+function renderLines() {
+  // Clear all layers
+  Object.values(layerGroups).forEach(g => g.clearLayers());
+
+  allRoads.forEach(road => {
+    const sk   = statusKey(road.Status);
+    const ward = (road.Ward || "").trim();
+
+    if (!activeStatus.has(sk))   return;
+    if (!activeWards.has(ward))  return;
+
+    const segs = parseWKT(road.road_geometry);
+    const colour = colourFor(road.Status);
+    const weight = STATUS_WEIGHT[sk] || 3;
+
+    if (segs.length > 0) {
+      segs.forEach(latlngs => {
+        const pl = L.polyline(latlngs, {
+          color: colour,
+          weight: weight,
+          opacity: 0.85
+        }).bindPopup(popupHtml(road));
+        layerGroups[ward].addLayer(pl);
+      });
+    } else {
+      // Fallback pin
+      const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
+      if (!isNaN(lat) && !isNaN(lon)) {
+        const circle = L.circleMarker([lat, lon], {
+          radius: 5, color: colour, fillColor: colour,
+          fillOpacity: 0.8, weight: 1.5
+        }).bindPopup(popupHtml(road));
+        layerGroups[ward].addLayer(circle);
+      }
+    }
+  });
+}
+
+// ── Update stats display ──────────────────────────────────────────────────────
+function updateStats() {
+  const visible = allRoads.filter(r =>
+    activeStatus.has(statusKey(r.Status)) && activeWards.has((r.Ward||"").trim())
+  );
+  const c = visible.filter(r => statusKey(r.Status) === "complete").length;
+  const p = visible.filter(r => statusKey(r.Status) === "in progress").length;
+  const n = visible.filter(r => statusKey(r.Status) === "not started").length;
+  document.getElementById("stat-complete").textContent   = c;
+  document.getElementById("stat-progress").textContent   = p;
+  document.getElementById("stat-notstarted").textContent = n;
+}
+
+// ── Status toggle ─────────────────────────────────────────────────────────────
+function toggleStatus(btn) {
+  const s = statusKey(btn.dataset.status);
+  if (activeStatus.has(s)) { activeStatus.delete(s); btn.classList.remove("active"); btn.classList.add("inactive"); }
+  else                     { activeStatus.add(s);    btn.classList.add("active");   btn.classList.remove("inactive"); }
+  renderLines();
+  updateStats();
+}
+
+// ── Ward chips ────────────────────────────────────────────────────────────────
+function buildWardList(filter = "") {
+  const container = document.getElementById("ward-list");
+  container.innerHTML = "";
+  const wards = Object.keys(wardCounts).sort();
+  wards.filter(w => w.toLowerCase().includes(filter.toLowerCase())).forEach(ward => {
+    const chip = document.createElement("div");
+    chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
+    chip.innerHTML = `<span>${ward}</span><span class="ward-chip-count">${wardCounts[ward]}</span>`;
+    chip.onclick = () => {
+      if (activeWards.has(ward)) activeWards.delete(ward);
+      else                       activeWards.add(ward);
+      chip.classList.toggle("selected");
+      renderLines();
+      updateStats();
+    };
+    container.appendChild(chip);
+  });
+}
+
+function filterWardList(val) { buildWardList(val); }
+
+function selectAllWards() {
+  const wards = Object.keys(wardCounts);
+  const allSelected = wards.every(w => activeWards.has(w));
+  if (allSelected) wards.forEach(w => activeWards.delete(w));
+  else             wards.forEach(w => activeWards.add(w));
+  buildWardList(document.querySelector(".ward-search").value);
+  renderLines();
+  updateStats();
+}
+
+// ── Count toggles ─────────────────────────────────────────────────────────────
+function updateCountBadges() {
+  document.getElementById("cnt-complete").textContent   = allRoads.filter(r => statusKey(r.Status) === "complete").length;
+  document.getElementById("cnt-progress").textContent   = allRoads.filter(r => statusKey(r.Status) === "in progress").length;
+  document.getElementById("cnt-notstarted").textContent = allRoads.filter(r => statusKey(r.Status) === "not started" || !r.Status).length;
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+function showError(msg) {
+  const b = document.getElementById("error-banner");
+  b.textContent = msg;
+  b.style.display = "block";
+}
+
+const bustUrl = SHEET_CSV_URL + "&cachebust=" + Date.now();
+Papa.parse(CORS_PROXY + encodeURIComponent(bustUrl), {
+  download: true,
+  header: true,
+  skipEmptyLines: true,
+  complete(results) {
+    document.getElementById("loading").classList.add("hidden");
+
+    // Filter to active rows only (Street column not blank)
+    allRoads = results.data.filter(r => r.Street && r.Street.trim() !== "");
+
+    if (allRoads.length === 0) {
+      showError("No data loaded. Make sure the Google Sheet is published publicly (File → Share → Publish to web).");
+      return;
+    }
+
+    // Build ward index
+    allRoads.forEach(r => {
+      const w = (r.Ward || "Unknown").trim();
+      wardCounts[w] = (wardCounts[w] || 0) + 1;
+    });
+
+    // Create a layer group per ward and add to map
+    Object.keys(wardCounts).forEach(w => {
+      layerGroups[w] = L.layerGroup().addTo(map);
+      activeWards.add(w);
+    });
+
+    buildWardList();
+    updateCountBadges();
+    renderLines();
+    updateStats();
+
+    // Fit map to rendered lines
+    const allLatLngs = allRoads
+      .filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
+      .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
+    if (allLatLngs.length > 0) map.fitBounds(L.latLngBounds(allLatLngs).pad(0.05));
+  },
+  error(err) {
+    document.getElementById("loading").classList.add("hidden");
+    showError(`Failed to load sheet: ${err.message}. Is the Google Sheet published publicly?`);
+  }
+});
+</script>
+</body>
+</html>
