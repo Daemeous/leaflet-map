@@ -111,10 +111,16 @@
   .ward-all-btn { width: 100%; padding: 6px 10px; margin-bottom: 8px; background: transparent; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
   .ward-all-btn:hover { color: var(--text); border-color: var(--muted); }
   .ward-list { display: flex; flex-direction: column; gap: 3px; }
-  .ward-chip { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 5px; border: 1px solid transparent; background: rgba(255,255,255,0.03); color: var(--muted); font-size: 12px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; user-select: none; }
+  .ward-chip { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 5px; border: 1px solid transparent; background: rgba(255,255,255,0.03); color: var(--muted); font-size: 12px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; user-select: none; gap: 6px; }
   .ward-chip:hover { background: rgba(255,255,255,0.07); color: var(--text); }
   .ward-chip.selected { background: rgba(79,142,247,0.12); border-color: rgba(79,142,247,0.35); color: var(--text); }
-  .ward-chip-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
+  .ward-chip-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ward-chip-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  /* Solo-select button per ward */
+  .ward-solo-btn { flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, border-color 0.12s, color 0.12s; line-height: 1; padding: 0; font-family: 'DM Mono', monospace; }
+  .ward-solo-btn:hover { background: rgba(79,142,247,0.25); border-color: var(--accent); color: var(--accent); }
+  .ward-solo-btn:active { background: rgba(79,142,247,0.4); }
+  .ward-solo-btn[title]:hover::after { content: attr(title); position: absolute; left: 34px; background: var(--panel); border: 1px solid var(--border); color: var(--text); font-size: 10px; padding: 2px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none; z-index: 100; }
 
   #loading { position: absolute; inset: 0; background: rgba(15,17,23,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px); }
   #loading.hidden { display: none; }
@@ -167,6 +173,23 @@
     #sidebar.open { transform: translateX(0); }
     #sidebar-toggle { display: block; }
   }
+
+  /* ── Cookie banner ── */
+  #cookie-banner {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 14px 20px; z-index: 99999;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    font-size: 12px; color: var(--muted); line-height: 1.5;
+  }
+  #cookie-banner.hidden { display: none; }
+  #cookie-banner p { flex: 1; min-width: 200px; }
+  #cookie-banner a { color: var(--accent); text-decoration: underline; cursor: pointer; }
+  .cookie-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.15s, border-color 0.15s; }
+  .cookie-btn-accept { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cookie-btn-accept:hover { background: #6ba3ff; }
+  .cookie-btn-decline { background: transparent; color: var(--muted); }
+  .cookie-btn-decline:hover { background: rgba(255,255,255,0.06); color: var(--text); }
 </style>
 </head>
 <body>
@@ -258,39 +281,57 @@
   </div>
 </div>
 
+<!-- Cookie consent banner -->
+<div id="cookie-banner" class="hidden">
+  <p>
+    This site can store a cookie to remember your Google sign-in between visits, saving you from having to log in each time.
+    <a onclick="showCookiePolicy()">What we store &amp; why →</a>
+  </p>
+  <button class="cookie-btn cookie-btn-decline" onclick="cookieDecline()">Decline (log in each time)</button>
+  <button class="cookie-btn cookie-btn-accept"  onclick="cookieAccept()">Accept &amp; remember me</button>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const SHEET_CSV_URL      = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&single=true&output=csv";
-const CORS_PROXY         = "https://corsproxy.io/?url=";
-const CHECKSUM_RANGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&output=csv&range=H2";
-const POLL_INTERVAL_MS   = 15 * 60 * 1000;
+// Public Google Sheets JSON endpoint — no CORS proxy needed, works on all
+// browsers including Safari / iOS WebKit with ITP enabled.
+const SHEET_ID  = "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q";
+const SHEET_GID = "2107159853";
+
+// Native Google Sheets published-CSV URL — Apple's ITP allows first-party
+// Google fetches and does NOT flag them as tracking. No proxy required.
+const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv`;
+
+// Checksum cell: we ask for only column H row 2 as CSV.
+// Same origin as the main sheet so no proxy needed.
+const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv&range=H2`;
+
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
 const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
 
+// localStorage keys
+const LS_DATA     = "leafmap_data_v1";   // cached road rows as JSON string
+const LS_CHECKSUM = "leafmap_checksum";  // last-known checksum
+const LS_TIME     = "leafmap_time";      // ISO timestamp of last successful load
+const LS_AUTH     = "leafmap_auth_v1";   // serialised auth session (if cookie consent given)
+const LS_COOKIE   = "leafmap_cookie_consent"; // "accepted" | "declined"
+
 // ── Status definitions ────────────────────────────────────────────────────────
-// key        — internal JS identifier (no spaces, no underscores, used in Sets/CSS)
-// sheetValue — exact string written to / read from the Google Sheet
-// label      — human-readable text shown in the UI
-// Order: most → least complete
 const STATUSES = [
-  { key: "complete",   sheetValue: "Complete",    label: "Complete",    cls: "opt-complete",   popupCls: "ps-complete",   colour: "#3ecf6e", weight: 4 },
-  { key: "inprogress", sheetValue: "In_Progress", label: "In Progress", cls: "opt-inprogress", popupCls: "ps-inprogress", colour: "#f5c842", weight: 4 },
-  { key: "planned",    sheetValue: "Planned",     label: "Planned",     cls: "opt-planned",    popupCls: "ps-planned",    colour: "#4f8ef7", weight: 3 },
-  { key: "notstarted", sheetValue: "Not_Started", label: "Not Started", cls: "opt-notstarted", popupCls: "ps-notstarted", colour: "#f75f5f", weight: 3 },
+  { key: "complete",   sheetValue: "Complete",    label: "Complete",    cls: "opt-complete",   popupCls: "ps-complete",   colour: "#3ecf6e", weight: 5 },
+  { key: "inprogress", sheetValue: "In_Progress", label: "In Progress", cls: "opt-inprogress", popupCls: "ps-inprogress", colour: "#f5c842", weight: 5 },
+  { key: "planned",    sheetValue: "Planned",     label: "Planned",     cls: "opt-planned",    popupCls: "ps-planned",    colour: "#4f8ef7", weight: 4 },
+  { key: "notstarted", sheetValue: "Not_Started", label: "Not Started", cls: "opt-notstarted", popupCls: "ps-notstarted", colour: "#f75f5f", weight: 4 },
 ];
 
-// Match a raw sheet value to a status definition.
-// Strips spaces and underscores before comparing so "In Progress", "In_Progress",
-// "inprogress" etc. all resolve correctly regardless of legacy data in the sheet.
 function getStatus(sheetValue) {
   const norm = (sheetValue || "").trim().toLowerCase().replace(/[\s_]+/g, "");
-  return STATUSES.find(s => s.sheetValue.toLowerCase().replace(/_/g, "") === norm)
-      || STATUSES[3]; // default: Not Started
+  return STATUSES.find(s => s.sheetValue.toLowerCase().replace(/_/g, "") === norm) || STATUSES[3];
 }
 function statusKey(v)  { return getStatus(v).key; }
 function colourFor(v)  { return getStatus(v).colour; }
@@ -305,10 +346,13 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allRoads     = [];
-let layerGroups  = {};
+let layerGroups  = {};   // ward → L.layerGroup
 let activeStatus = new Set(STATUSES.map(s => s.key));
 let activeWards  = new Set();
 let wardCounts   = {};
+
+// Map from rowIdx → { polylines: [], markers: [] } for diff-based updates
+let layerIndex   = {};
 
 let lastChecksum     = null;
 let lastLoadTime     = null;
@@ -321,6 +365,60 @@ let authTokenType  = "idToken";
 let authEmail      = null;
 let authExpiry     = 0;
 let authAuthorised = false;
+
+// ── Cookie consent ────────────────────────────────────────────────────────────
+function cookieConsent() { return localStorage.getItem(LS_COOKIE); }
+
+function showCookieBanner() {
+  if (!cookieConsent()) document.getElementById("cookie-banner").classList.remove("hidden");
+}
+
+function cookieAccept() {
+  localStorage.setItem(LS_COOKIE, "accepted");
+  document.getElementById("cookie-banner").classList.add("hidden");
+  // Save current auth session if already signed in
+  persistAuthSession();
+}
+
+function cookieDecline() {
+  localStorage.setItem(LS_COOKIE, "declined");
+  document.getElementById("cookie-banner").classList.add("hidden");
+  // Clear any previously stored auth
+  localStorage.removeItem(LS_AUTH);
+}
+
+function showCookiePolicy() {
+  alert(
+    "Cookie / local storage policy\n\n" +
+    "If you accept, we store a small token in your browser's local storage (similar to a cookie) that remembers your Google sign-in for up to 55 minutes so you do not have to log in again on your next visit.\n\n" +
+    "We also store a local copy of the road data so the map loads instantly and we only download fresh data from Google Sheets when something has actually changed.\n\n" +
+    "No personal data is shared with third parties. You can clear this at any time by declining below or clearing your browser's site data."
+  );
+}
+
+// ── Auth persistence ──────────────────────────────────────────────────────────
+function persistAuthSession() {
+  if (cookieConsent() !== "accepted") return;
+  if (!authToken || !authEmail || !authAuthorised) return;
+  try {
+    localStorage.setItem(LS_AUTH, JSON.stringify({
+      token: authToken, tokenType: authTokenType,
+      email: authEmail, expiry: authExpiry, authorised: authAuthorised
+    }));
+  } catch(e) { /* storage full – ignore */ }
+}
+
+function restoreAuthSession() {
+  if (cookieConsent() !== "accepted") return;
+  try {
+    const raw = localStorage.getItem(LS_AUTH);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (!s.token || Date.now() >= s.expiry - 30_000) { localStorage.removeItem(LS_AUTH); return; }
+    authToken = s.token; authTokenType = s.tokenType || "idToken";
+    authEmail = s.email; authExpiry = s.expiry; authAuthorised = s.authorised;
+  } catch(e) { localStorage.removeItem(LS_AUTH); }
+}
 
 // ── Sync UI ───────────────────────────────────────────────────────────────────
 function setSyncState(state, text) {
@@ -370,40 +468,118 @@ function popupHtml(row) {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
-function renderLines() {
-  Object.values(layerGroups).forEach(g => g.clearLayers());
+// Diff-based render: only remove/add layers that have actually changed.
+// Preserves open popups on unchanged lines.
+
+// Snapshot of what is currently rendered, keyed by a stable string per road segment.
+// Key: `${rowIdx}_${segIdx}` → { layer, road }
+let renderedLayers = new Map();
+
+function segmentKey(rowIdx, segIdx) { return `${rowIdx}_${segIdx}`; }
+
+function desiredLayerSpec(road) {
+  // Returns null if the road should not be shown, else the visual spec.
+  const sk   = statusKey(road.Status);
+  const ward = (road.Ward || "").trim();
+  if (!activeStatus.has(sk) || !activeWards.has(ward)) return null;
+
   const hasSel = !!selectedRoadName;
   const selKey = hasSel ? selectedRoadName.toLowerCase() : null;
+  const isSel  = hasSel && (road.Street || "").trim().toLowerCase() === selKey;
+  const opac   = hasSel && !isSel ? 0.15 : 0.85;
+  const colour = colourFor(road.Status);
+  const weight = weightFor(road.Status);
+
+  return { colour, weight, opac, isSel, sk, ward };
+}
+
+function specChanged(existingSpec, newSpec) {
+  if (!existingSpec || !newSpec) return existingSpec !== newSpec;
+  return existingSpec.colour !== newSpec.colour
+      || existingSpec.weight !== newSpec.weight
+      || existingSpec.opac   !== newSpec.opac
+      || existingSpec.isSel  !== newSpec.isSel;
+}
+
+function renderLines() {
+  // Collect desired state
+  const desired = new Map(); // segmentKey → { road, spec, pts (or null for markers) }
 
   allRoads.forEach(road => {
-    const sk   = statusKey(road.Status);
+    const spec = desiredLayerSpec(road);
     const ward = (road.Ward || "").trim();
-    if (!activeStatus.has(sk) || !activeWards.has(ward)) return;
-
-    const segs   = parseWKT(road.road_geometry);
-    const colour = colourFor(road.Status);
-    const weight = weightFor(road.Status);
-    const isSel  = hasSel && (road.Street || "").trim().toLowerCase() === selKey;
-    const opac   = hasSel && !isSel ? 0.15 : 0.85;
+    const segs = parseWKT(road.road_geometry);
 
     if (segs.length > 0) {
-      segs.forEach(pts => {
-        if (isSel) {
-          L.polyline(pts, { color: "#fff", weight: weight + 6, opacity: 0.25, interactive: false }).addTo(layerGroups[ward]);
-          L.polyline(pts, { color: colour, weight: weight + 2, opacity: 1 }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
-        } else {
-          L.polyline(pts, { color: colour, weight, opacity: opac }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
-        }
+      segs.forEach((pts, segIdx) => {
+        const k = segmentKey(road._rowIdx, segIdx);
+        desired.set(k, { road, spec, pts, isMarker: false, ward });
       });
     } else {
       const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
       if (!isNaN(lat) && !isNaN(lon)) {
-        L.circleMarker([lat, lon], {
-          radius: isSel ? 7 : 5, color: colour, fillColor: colour,
-          fillOpacity: hasSel && !isSel ? 0.2 : 0.8, weight: 1.5, opacity: opac
-        }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
+        const k = segmentKey(road._rowIdx, 0);
+        desired.set(k, { road, spec, latlng: [lat, lon], isMarker: true, ward });
       }
     }
+  });
+
+  // Remove layers that are no longer needed or whose spec changed
+  renderedLayers.forEach((entry, k) => {
+    const d = desired.get(k);
+    if (!d || !d.spec || specChanged(entry.spec, d.spec)) {
+      // Remove all sub-layers for this key (glow + main for selected)
+      entry.layers.forEach(l => {
+        const ward = entry.ward;
+        if (layerGroups[ward]) layerGroups[ward].removeLayer(l);
+      });
+      renderedLayers.delete(k);
+    }
+  });
+
+  // Add layers that are newly needed
+  desired.forEach((d, k) => {
+    if (!d.spec) return; // should not be shown
+    if (renderedLayers.has(k)) return; // already rendered with correct spec
+
+    const { road, spec, ward } = d;
+    if (!layerGroups[ward]) return;
+
+    const layers = [];
+
+    if (!d.isMarker) {
+      const { pts } = d;
+      if (spec.isSel) {
+        // Glow layer (non-interactive)
+        const glow = L.polyline(pts, { color: "#fff", weight: spec.weight + 6, opacity: 0.25, interactive: false });
+        glow.addTo(layerGroups[ward]);
+        layers.push(glow);
+        // Main line with wider interactive hit area
+        const line = L.polyline(pts, { color: spec.colour, weight: spec.weight + 2, opacity: 1 });
+        line.bindPopup(popupHtml(road));
+        line.addTo(layerGroups[ward]);
+        layers.push(line);
+      } else {
+        // Invisible fat hit target for easy tapping on mobile, then visible line on top
+        const hit = L.polyline(pts, { color: "transparent", weight: 20, opacity: 0, interactive: true });
+        hit.bindPopup(popupHtml(road));
+        hit.addTo(layerGroups[ward]);
+        layers.push(hit);
+        const line = L.polyline(pts, { color: spec.colour, weight: spec.weight, opacity: spec.opac, interactive: false });
+        line.addTo(layerGroups[ward]);
+        layers.push(line);
+      }
+    } else {
+      const marker = L.circleMarker(d.latlng, {
+        radius: spec.isSel ? 7 : 5, color: spec.colour, fillColor: spec.colour,
+        fillOpacity: spec.opac === 0.15 ? 0.2 : 0.8, weight: 1.5, opacity: spec.opac
+      });
+      marker.bindPopup(popupHtml(road));
+      marker.addTo(layerGroups[ward]);
+      layers.push(marker);
+    }
+
+    renderedLayers.set(k, { layers, spec: { ...spec }, ward });
   });
 }
 
@@ -431,6 +607,20 @@ function toggleStatus(btn) {
 }
 
 // ── Wards ─────────────────────────────────────────────────────────────────────
+function soloWard(ward, e) {
+  e.stopPropagation(); // don't toggle the chip
+  // If this ward is the only active one, re-select all (toggle back)
+  const allWards = Object.keys(wardCounts);
+  if (activeWards.size === 1 && activeWards.has(ward)) {
+    allWards.forEach(w => activeWards.add(w));
+  } else {
+    activeWards.clear();
+    activeWards.add(ward);
+  }
+  buildWardList(document.querySelector(".ward-search").value);
+  renderLines(); updateStats();
+}
+
 function buildWardList(filter = "") {
   const container = document.getElementById("ward-list");
   container.innerHTML = "";
@@ -439,12 +629,31 @@ function buildWardList(filter = "") {
     .forEach(ward => {
       const chip = document.createElement("div");
       chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
-      chip.innerHTML = `<span>${ward}</span><span class="ward-chip-count">${wardCounts[ward]}</span>`;
-      chip.onclick = () => {
+
+      // Solo button
+      const soloBtn = document.createElement("button");
+      soloBtn.className = "ward-solo-btn";
+      soloBtn.textContent = "◉";
+      soloBtn.title = "Show only this ward";
+      soloBtn.addEventListener("click", ev => soloWard(ward, ev));
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "ward-chip-name";
+      nameSpan.textContent = ward;
+
+      const countSpan = document.createElement("span");
+      countSpan.className = "ward-chip-count";
+      countSpan.textContent = wardCounts[ward];
+
+      chip.appendChild(soloBtn);
+      chip.appendChild(nameSpan);
+      chip.appendChild(countSpan);
+
+      chip.addEventListener("click", () => {
         if (activeWards.has(ward)) activeWards.delete(ward); else activeWards.add(ward);
         chip.classList.toggle("selected");
         renderLines(); updateStats();
-      };
+      });
       container.appendChild(chip);
     });
 }
@@ -464,55 +673,155 @@ function showError(msg) {
   setTimeout(() => { b.style.display = "none"; }, 8000);
 }
 
-// ── Sheet load ────────────────────────────────────────────────────────────────
-function loadFullSheet(checksum) {
-  return new Promise((resolve, reject) => {
-    document.getElementById("loading-msg").textContent = "Reloading road data…";
-    document.getElementById("loading").classList.remove("hidden");
-    Papa.parse(CORS_PROXY + encodeURIComponent(SHEET_CSV_URL + "&cachebust=" + Date.now()), {
-      download: true, header: true, skipEmptyLines: true,
-      complete(results) {
-        document.getElementById("loading").classList.add("hidden");
-        const rows = results.data.filter(r => r.Street && r.Street.trim());
-        if (!rows.length) { reject(new Error("No data rows found.")); return; }
+// ── CSV fetch (no proxy — direct Google endpoint) ─────────────────────────────
+async function fetchCSVText(url) {
+  // Add a cache-bust so browsers don't serve stale CSV
+  const sep = url.includes("?") ? "&" : "?";
+  const res = await fetch(url + sep + "cachebust=" + Date.now(), {
+    // credentials: "omit" ensures no cookies are sent, which also helps ITP
+    credentials: "omit",
+    cache: "no-store"
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.text();
+}
 
-        const prevWards = new Set(activeWards);
-        allRoads = rows;
-        allRoads.forEach((r, i) => { r._rowIdx = i + 2; });
-        Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
-        layerGroups = {}; wardCounts = {}; activeWards = new Set();
+// Minimal CSV parser (avoids PapaParse dependency for checksum-only fetch)
+function parseCSVFirstCell(text) {
+  const firstLine = text.trim().split("\n")[0] || "";
+  return firstLine.split(",")[0].replace(/^"|"$/g, "").trim();
+}
 
-        allRoads.forEach(r => {
-          const w = (r.Ward || "Unknown").trim();
-          wardCounts[w] = (wardCounts[w] || 0) + 1;
-        });
-        Object.keys(wardCounts).forEach(w => {
-          layerGroups[w] = L.layerGroup().addTo(map);
-          if (!prevWards.size || prevWards.has(w)) activeWards.add(w);
-        });
-
-        buildWardList(); updateCountBadges(); renderLines(); updateStats(); buildRoadSearchIndex();
-
-        if (!lastLoadTime) {
-          const pts = allRoads.filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
-                              .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
-          if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
-        }
-        lastChecksum = checksum; lastLoadTime = new Date();
-        setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
-        resolve();
-      },
-      error(err) { document.getElementById("loading").classList.add("hidden"); reject(err); }
+function parseCSVRows(text) {
+  // Use PapaParse for full data
+  return new Promise(resolve => {
+    Papa.parse(text, {
+      header: true, skipEmptyLines: true,
+      complete: r => resolve(r.data)
     });
   });
 }
 
+// ── localStorage cache ─────────────────────────────────────────────────────────
+function saveToCache(rows, checksum) {
+  try {
+    localStorage.setItem(LS_DATA,     JSON.stringify(rows));
+    localStorage.setItem(LS_CHECKSUM, checksum || "");
+    localStorage.setItem(LS_TIME,     new Date().toISOString());
+  } catch(e) { /* quota – skip */ }
+}
+
+function loadFromCache() {
+  try {
+    const raw = localStorage.getItem(LS_DATA);
+    if (!raw) return null;
+    return {
+      rows:     JSON.parse(raw),
+      checksum: localStorage.getItem(LS_CHECKSUM) || "",
+      time:     new Date(localStorage.getItem(LS_TIME) || 0)
+    };
+  } catch(e) { return null; }
+}
+
+// ── Ingest rows into state ─────────────────────────────────────────────────────
+function ingestRows(rows, checksum, timestamp, isFirstLoad) {
+  const prevWards = new Set(activeWards);
+
+  // Index new data by rowIdx so we can diff efficiently
+  const newByIdx = new Map();
+  rows.filter(r => r.Street && r.Street.trim()).forEach((r, i) => {
+    r._rowIdx = i + 2;
+    newByIdx.set(r._rowIdx, r);
+  });
+
+  if (isFirstLoad) {
+    // Full replacement on first load
+    // Clear existing layers
+    renderedLayers.forEach(entry => {
+      entry.layers.forEach(l => {
+        Object.values(layerGroups).forEach(g => g.removeLayer(l));
+      });
+    });
+    renderedLayers.clear();
+
+    Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
+    layerGroups = {}; wardCounts = {}; activeWards = new Set();
+
+    allRoads = [...newByIdx.values()];
+    allRoads.forEach(r => {
+      const w = (r.Ward || "Unknown").trim();
+      wardCounts[w] = (wardCounts[w] || 0) + 1;
+    });
+    Object.keys(wardCounts).forEach(w => {
+      layerGroups[w] = L.layerGroup().addTo(map);
+      if (!prevWards.size || prevWards.has(w)) activeWards.add(w);
+    });
+  } else {
+    // Incremental update: only touch rows whose Status changed
+    let changed = false;
+    allRoads.forEach(existing => {
+      const updated = newByIdx.get(existing._rowIdx);
+      if (updated && updated.Status !== existing.Status) {
+        existing.Status = updated.Status;
+        // Invalidate rendered layers for this row so renderLines re-draws them
+        [...renderedLayers.keys()]
+          .filter(k => k.startsWith(existing._rowIdx + "_"))
+          .forEach(k => {
+            const entry = renderedLayers.get(k);
+            if (entry) {
+              entry.layers.forEach(l => {
+                const ward = entry.ward;
+                if (layerGroups[ward]) layerGroups[ward].removeLayer(l);
+              });
+              renderedLayers.delete(k);
+            }
+          });
+        changed = true;
+      }
+    });
+    if (!changed) {
+      // Nothing actually changed; just update timestamps
+      lastChecksum = checksum;
+      lastLoadTime = timestamp;
+      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
+      return;
+    }
+  }
+
+  buildWardList(); updateCountBadges(); renderLines(); updateStats(); buildRoadSearchIndex();
+
+  if (isFirstLoad) {
+    const pts = allRoads.filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
+                        .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
+    if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
+  }
+
+  lastChecksum = checksum; lastLoadTime = timestamp;
+  setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
+}
+
+// ── Sheet load ────────────────────────────────────────────────────────────────
+async function loadFullSheet(checksum) {
+  document.getElementById("loading-msg").textContent = lastChecksum ? "Reloading road data…" : "Loading road data…";
+  document.getElementById("loading").classList.remove("hidden");
+  try {
+    const text = await fetchCSVText(SHEET_CSV_URL);
+    const rows = await parseCSVRows(text);
+    if (!rows.length) throw new Error("No data rows found.");
+
+    const isFirst = !lastChecksum;
+    const ts = new Date();
+    ingestRows(rows, checksum, ts, isFirst);
+    saveToCache(rows, checksum);
+  } finally {
+    document.getElementById("loading").classList.add("hidden");
+  }
+}
+
 // ── Checksum ──────────────────────────────────────────────────────────────────
 async function fetchChecksum() {
-  const resp = await fetch(CORS_PROXY + encodeURIComponent(CHECKSUM_RANGE_URL + "&cachebust=" + Date.now()));
-  if (!resp.ok) throw new Error("HTTP " + resp.status);
-  const parsed = Papa.parse((await resp.text()).trim(), { header: false });
-  return (parsed.data[0]?.[0] || "").trim();
+  const text = await fetchCSVText(CHECKSUM_URL);
+  return parseCSVFirstCell(text);
 }
 
 async function checkForUpdates(isManual = false) {
@@ -521,9 +830,12 @@ async function checkForUpdates(isManual = false) {
   setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
   try {
     const cs = await fetchChecksum();
-    if (!cs)           await loadFullSheet(null);
-    else if (cs !== lastChecksum) await loadFullSheet(cs);
-    else { lastLoadTime = lastLoadTime || new Date(); setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime)); }
+    if (!cs || cs !== lastChecksum) {
+      await loadFullSheet(cs || null);
+    } else {
+      lastLoadTime = lastLoadTime || new Date();
+      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
+    }
   } catch(err) {
     setSyncState("error", "Check failed · " + formatTime(lastLoadTime));
     if (isManual) showError("Refresh failed: " + err.message);
@@ -686,6 +998,17 @@ async function processSignIn(idToken, emailHint, accessToken) {
     if (!data.ok) { if (editDiv) showEditMsg(editDiv, data.error || "Verification failed.", "error"); return; }
     authToken = idToken || accessToken; authTokenType = idToken ? "idToken" : "accessToken";
     authEmail = data.email || emailHint; authExpiry = Date.now() + 55 * 60 * 1000; authAuthorised = data.authorised === true;
+
+    // Offer to remember sign-in via cookie consent
+    if (authAuthorised) {
+      if (cookieConsent() === "accepted") {
+        persistAuthSession();
+      } else if (!cookieConsent()) {
+        // Show banner so user can decide
+        showCookieBanner();
+      }
+    }
+
     if (!authAuthorised) { if (editDiv) showEditMsg(editDiv, `${authEmail} is not on the authorised list.`, "error"); return; }
     if (pendingEdit) { showStatusPicker(pendingEdit.editDiv, pendingEdit.rowRef); pendingEdit = null; }
   } catch(e) { if (editDiv) showEditMsg(editDiv, "Network error: " + e.message, "error"); }
@@ -724,8 +1047,21 @@ async function submitStatusChange(rowIdx, sheetValue, btn) {
     })).json();
     if (!data.ok) { showEditMsg(editDiv, data.error || "Save failed.", "error"); return; }
     const row = allRoads.find(r => r._rowIdx === rowIdx);
-    if (row) row.Status = sheetValue;
-    renderLines(); updateStats(); updateCountBadges();
+    if (row) {
+      const oldStatus = row.Status;
+      row.Status = sheetValue;
+      // Invalidate only this row's rendered layers so popup stays open elsewhere
+      [...renderedLayers.keys()]
+        .filter(k => k.startsWith(rowIdx + "_"))
+        .forEach(k => {
+          const entry = renderedLayers.get(k);
+          if (entry) {
+            entry.layers.forEach(l => { if (layerGroups[entry.ward]) layerGroups[entry.ward].removeLayer(l); });
+            renderedLayers.delete(k);
+          }
+        });
+      renderLines(); updateStats(); updateCountBadges();
+    }
     showEditMsg(editDiv, `Saved as "${getStatus(sheetValue).label}"`, "success");
     setTimeout(() => { if (editDiv) editDiv.style.display = "none"; }, 1800);
   } catch(e) { showEditMsg(editDiv, "Network error: " + e.message, "error"); }
@@ -733,6 +1069,7 @@ async function submitStatusChange(rowIdx, sheetValue, btn) {
 
 function signOut() {
   authToken = null; authTokenType = "idToken"; authEmail = null; authExpiry = 0; authAuthorised = false;
+  localStorage.removeItem(LS_AUTH);
   if (typeof google !== "undefined" && google.accounts) google.accounts.id.disableAutoSelect();
   document.querySelectorAll(".popup-edit-area").forEach(el => el.style.display = "none");
 }
@@ -743,7 +1080,29 @@ function showEditMsg(editDiv, msg, type) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-checkForUpdates(false);
+(async function boot() {
+  // 1. Restore cached auth session (if consent given)
+  restoreAuthSession();
+
+  // 2. Show cookie banner only if consent not yet given and we have no cached choice
+  if (!cookieConsent()) showCookieBanner();
+
+  // 3. Try to load from localStorage cache first for instant render
+  const cached = loadFromCache();
+  if (cached && cached.rows && cached.rows.length) {
+    document.getElementById("loading-msg").textContent = "Loading from cache…";
+    lastChecksum = cached.checksum;
+    lastLoadTime = cached.time;
+    ingestRows(cached.rows, cached.checksum, cached.time, true);
+    document.getElementById("loading").classList.add("hidden");
+    setSyncState("stale", "Cached · checking…");
+    // 4. Then check for updates in background
+    checkForUpdates(false);
+  } else {
+    // 5. No cache — do a full fresh load
+    checkForUpdates(false);
+  }
+})();
 </script>
 </body>
 </html>
