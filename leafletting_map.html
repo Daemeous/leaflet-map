@@ -600,28 +600,61 @@ function popupHtml(row) {
 }
 
 // ── Render lines ──────────────────────────────────────────────────────────────
+// When a road is selected via search, all other roads are dimmed and the
+// selected road's segments are redrawn on top with a glow underline.
 function renderLines() {
   Object.values(layerGroups).forEach(g => g.clearLayers());
+
+  const hasSelection = !!selectedRoadName;
+  const selKey = selectedRoadName ? selectedRoadName.toLowerCase() : null;
+
   allRoads.forEach(road => {
     const sk   = statusKey(road.Status);
     const ward = (road.Ward || "").trim();
     if (!activeStatus.has(sk))  return;
     if (!activeWards.has(ward)) return;
-    const segs   = parseWKT(road.road_geometry);
-    const colour = colourFor(road.Status);
-    const weight = STATUS_WEIGHT[sk] || 3;
+
+    const segs    = parseWKT(road.road_geometry);
+    const colour  = colourFor(road.Status);
+    const weight  = STATUS_WEIGHT[sk] || 3;
+    const isSelected = hasSelection && (road.Street || "").trim().toLowerCase() === selKey;
+
+    // Dim non-selected roads when something is selected
+    const opacity = hasSelection && !isSelected ? 0.15 : 0.85;
+
     if (segs.length > 0) {
       segs.forEach(latlngs => {
-        L.polyline(latlngs, { color: colour, weight, opacity: 0.85 })
-          .bindPopup(popupHtml(road))
-          .addTo(layerGroups[ward]);
+        if (isSelected) {
+          // Glow layer underneath (wider, semi-transparent white)
+          L.polyline(latlngs, {
+            color: "#ffffff",
+            weight: weight + 6,
+            opacity: 0.25,
+            interactive: false
+          }).addTo(layerGroups[ward]);
+          // Bright colour layer on top
+          L.polyline(latlngs, {
+            color: colour,
+            weight: weight + 2,
+            opacity: 1
+          }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
+        } else {
+          L.polyline(latlngs, { color: colour, weight, opacity })
+            .bindPopup(popupHtml(road))
+            .addTo(layerGroups[ward]);
+        }
       });
     } else {
       const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
       if (!isNaN(lat) && !isNaN(lon)) {
-        L.circleMarker([lat, lon], { radius: 5, color: colour, fillColor: colour, fillOpacity: 0.8, weight: 1.5 })
-          .bindPopup(popupHtml(road))
-          .addTo(layerGroups[ward]);
+        L.circleMarker([lat, lon], {
+          radius: isSelected ? 7 : 5,
+          color: colour,
+          fillColor: colour,
+          fillOpacity: hasSelection && !isSelected ? 0.2 : 0.8,
+          weight: 1.5,
+          opacity
+        }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
       }
     }
   });
@@ -821,7 +854,6 @@ function manualRefresh() {
 
 let roadSearchIndex  = [];  // [{name, wards:Set, allLatLngs, rows}]
 let dropdownFocusIdx = -1;
-let selectionGroup   = null; // L.LayerGroup holding highlight rect + popups
 
 function buildRoadSearchIndex() {
   const map_ = {};
@@ -842,27 +874,6 @@ function buildRoadSearchIndex() {
 // Returns true if the road has any rows in currently active wards
 function roadInActiveWards(road) {
   return road.rows.some(r => activeWards.has((r.Ward || "Unknown").trim()));
-}
-
-// Collect latlngs only from rows whose ward is currently active
-function visibleLatLngsForRoad(road) {
-  const pts = [];
-  road.rows.forEach(row => {
-    const ward = (row.Ward || "Unknown").trim();
-    if (!activeWards.has(ward)) return;
-    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
-    if (!isNaN(lat) && !isNaN(lon)) pts.push([lat, lon]);
-    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => pts.push(pt)));
-  });
-  return pts;
-}
-
-// Midpoint of a latlng array (simple mean)
-function midpoint(latlngs) {
-  if (!latlngs.length) return null;
-  const lat = latlngs.reduce((s, p) => s + p[0], 0) / latlngs.length;
-  const lon = latlngs.reduce((s, p) => s + p[1], 0) / latlngs.length;
-  return [lat, lon];
 }
 
 function onRoadSearchInput(val) {
@@ -939,60 +950,47 @@ function selectRoad(idx, e) {
   closeDropdown();
 }
 
-// ── Activate a road: fly to visible segments, draw highlight, open popups ────
+// ── Activate a road: dim others, highlight selected, fit to visible segments ──
 function activateRoad(road) {
-  clearSelection(); // remove previous highlight
+  selectedRoadName = road.name;
 
-  // Decide which latlngs to use for fitting bounds:
-  // prefer currently-visible (active ward) segments; fall back to all.
-  const visiblePts = visibleLatLngsForRoad(road);
-  const fitPts     = visiblePts.length > 0 ? visiblePts : road.allLatLngs;
-  if (fitPts.length === 0) return;
-
-  const bounds = L.latLngBounds(fitPts).pad(0.08);
-  map.fitBounds(bounds, { maxZoom: 17 });
-
-  selectionGroup = L.layerGroup().addTo(map);
-
-  // Cyan bounding-box rectangle
-  L.rectangle(bounds, {
-    color: "#00e5ff",
-    weight: 2,
-    opacity: 0.85,
-    fillColor: "#00e5ff",
-    fillOpacity: 0.04,
-    dashArray: "6 4",
-    interactive: false
-  }).addTo(selectionGroup);
-
-  // One popup per visible row (each segment/ward combo), opened at segment midpoint
-  const visibleRows = road.rows.filter(row =>
-    activeWards.has((row.Ward || "Unknown").trim()) &&
-    activeStatus.has(statusKey(row.Status))
-  );
-
-  visibleRows.forEach(row => {
-    // Gather this row's geometry points to find midpoint
-    const rowPts = [];
-    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => rowPts.push(pt)));
+  // Collect latlngs only from rows that are currently visible
+  // (active ward AND active status) — so zoom matches what's on screen
+  const fitPts = [];
+  road.rows.forEach(row => {
+    const ward = (row.Ward || "Unknown").trim();
+    if (!activeWards.has(ward)) return;
+    if (!activeStatus.has(statusKey(row.Status))) return;
+    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => fitPts.push(pt)));
     const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
-    if (!isNaN(lat) && !isNaN(lon)) rowPts.push([lat, lon]);
-    const mid = midpoint(rowPts);
-    if (!mid) return;
-
-    L.popup({ closeButton: true, autoClose: false, closeOnClick: false })
-      .setLatLng(mid)
-      .setContent(popupHtml(row))
-      .addTo(selectionGroup);
+    if (!isNaN(lat) && !isNaN(lon)) fitPts.push([lat, lon]);
   });
+
+  // Fall back to any active-ward points, then all points
+  const fallbackPts = [];
+  if (fitPts.length === 0) {
+    road.rows.forEach(row => {
+      const ward = (row.Ward || "Unknown").trim();
+      if (!activeWards.has(ward)) return;
+      parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => fallbackPts.push(pt)));
+      const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+      if (!isNaN(lat) && !isNaN(lon)) fallbackPts.push([lat, lon]);
+    });
+  }
+
+  const pts = fitPts.length > 0 ? fitPts : (fallbackPts.length > 0 ? fallbackPts : road.allLatLngs);
+  if (pts.length > 0) {
+    map.fitBounds(L.latLngBounds(pts).pad(0.1), { maxZoom: 17 });
+  }
+
+  renderLines();
 }
 
-// ── Clear selection highlight and popups ─────────────────────────────────────
+// ── Clear selection ───────────────────────────────────────────────────────────
 function clearSelection() {
-  if (selectionGroup) {
-    map.removeLayer(selectionGroup);
-    selectionGroup = null;
-  }
+  if (!selectedRoadName) return;
+  selectedRoadName = null;
+  renderLines();
 }
 
 function closeDropdown() {
