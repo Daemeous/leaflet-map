@@ -46,7 +46,7 @@
 
   /* ── Sidebar header ── */
   .sidebar-head {
-    padding: 20px 20px 16px;
+    padding: 20px 20px 14px;
     border-bottom: 1px solid var(--border);
   }
   .sidebar-head h1 {
@@ -62,7 +62,65 @@
     font-size: 12px;
     color: var(--muted);
     line-height: 1.5;
+    margin-bottom: 10px;
   }
+
+  /* ── Sync status bar ── */
+  #sync-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  #sync-bar:hover { background: rgba(255,255,255,0.07); border-color: var(--muted); }
+  #sync-bar:active { background: rgba(255,255,255,0.1); }
+
+  #sync-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  #sync-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--muted);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  #sync-dot.fresh  { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+  #sync-dot.stale  { background: var(--yellow); box-shadow: 0 0 5px var(--yellow); }
+  #sync-dot.error  { background: var(--red);    box-shadow: 0 0 5px var(--red); }
+  #sync-dot.checking {
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
+    animation: pulse-dot 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes pulse-dot { from { opacity: 1; } to { opacity: 0.3; } }
+
+  #sync-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #sync-icon {
+    font-size: 13px;
+    color: var(--muted);
+    flex-shrink: 0;
+    transition: transform 0.4s;
+  }
+  #sync-icon.spinning { animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Stats bar ── */
   #stats {
@@ -75,8 +133,24 @@
     padding: 10px 12px;
     text-align: center;
     border-right: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+    position: relative;
   }
   .stat:last-child { border-right: none; }
+  .stat:hover { background: rgba(255,255,255,0.04); }
+  .stat:active { background: rgba(255,255,255,0.08); }
+  .stat::after {
+    content: '↻';
+    position: absolute;
+    top: 4px; right: 5px;
+    font-size: 9px;
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .stat:hover::after { opacity: 0.6; }
   .stat-num {
     font-family: 'DM Mono', monospace;
     font-size: 18px;
@@ -228,7 +302,6 @@
     animation: spin 0.8s linear infinite;
     margin-bottom: 14px;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
 
   /* ── Error banner ── */
@@ -308,18 +381,25 @@
     <div class="sidebar-head">
       <h1>Leafletting Map</h1>
       <p>Filter roads by ward or completion status.</p>
+      <div id="sync-bar" title="Click to check for updates now" onclick="manualRefresh()">
+        <div id="sync-left">
+          <div id="sync-dot"></div>
+          <span id="sync-text">Loading…</span>
+        </div>
+        <span id="sync-icon">↻</span>
+      </div>
     </div>
 
     <div id="stats">
-      <div class="stat">
+      <div class="stat" title="Click to refresh data" onclick="manualRefresh()">
         <div class="stat-num green" id="stat-complete">0</div>
         <div class="stat-label">Complete</div>
       </div>
-      <div class="stat">
+      <div class="stat" title="Click to refresh data" onclick="manualRefresh()">
         <div class="stat-num yellow" id="stat-progress">0</div>
         <div class="stat-label">In Progress</div>
       </div>
-      <div class="stat">
+      <div class="stat" title="Click to refresh data" onclick="manualRefresh()">
         <div class="stat-num red" id="stat-notstarted">0</div>
         <div class="stat-label">Not Started</div>
       </div>
@@ -356,7 +436,7 @@
   <div id="map-wrap">
     <button id="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
     <div id="map"></div>
-    <div id="loading"><div class="spinner"></div><p>Loading road data…</p></div>
+    <div id="loading"><div class="spinner"></div><p id="loading-msg">Loading road data…</p></div>
     <div id="error-banner"></div>
   </div>
 </div>
@@ -365,10 +445,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
 <script>
-// ── CONFIG — update SHEET_CSV_URL when the sheet is public ──────────────────
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRbbW7Fx0K_PsgqRR6joNV4lzOdn1Q7AQY2bieG_L5-Rypu7_ayMNUNx3c0diPGN2MLHkUDB7F8vapc/pub?gid=887349948&single=true&output=csv";
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSF6ppshV-wUUrhR03qNeS-40LM14wE0DN0vAkG4T0CVmGmiADevOsaMGIIeJ0DC97MlqXOlSNjCBn9/pub?gid=0&single=true&output=csv";
 const CORS_PROXY    = "https://corsproxy.io/?url=";
-// ────────────────────────────────────────────────────────────────────────────
+
+// Checksum cell: A2849 — a formula in your sheet that reads from the Status column
+// e.g. =COUNTA(S2:S2848)&"|"&COUNTIF(S2:S2848,"Complete")&"|"&COUNTIF(S2:S2848,"In Progress")
+// The CSV range URL fetches just that single cell cheaply.
+const CHECKSUM_RANGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSF6ppshV-wUUrhR03qNeS-40LM14wE0DN0vAkG4T0CVmGmiADevOsaMGIIeJ0DC97MlqXOlSNjCBn9/pub?gid=0&single=true&output=csv&range=A2849";
+
+// How often to poll for checksum changes (15 minutes)
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
+// ─────────────────────────────────────────────────────────────────────────────
 
 const STATUS_COLOURS = {
   "complete":    "#3ecf6e",
@@ -380,7 +468,7 @@ const STATUS_WEIGHT = { "complete": 4, "in progress": 4, "not started": 3 };
 function statusKey(s) { return (s || "").trim().toLowerCase(); }
 function colourFor(s) { return STATUS_COLOURS[statusKey(s)] || "#f75f5f"; }
 
-// ── Map init ─────────────────────────────────────────────────────────────────
+// ── Map init ──────────────────────────────────────────────────────────────────
 const map = L.map("map", { zoomControl: true }).setView([52.8, -2.12], 12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -388,13 +476,35 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let allRoads    = [];          // parsed rows with geometry
-let layerGroups = {};          // ward -> L.LayerGroup
+let allRoads     = [];
+let layerGroups  = {};
 let activeStatus = new Set(["complete","in progress","not started"]);
 let activeWards  = new Set();
 let wardCounts   = {};
 
-// ── Parse WKT linestring(s) to Leaflet LatLng arrays ─────────────────────────
+let lastChecksum       = null;   // checksum value from last full load
+let lastLoadTime       = null;   // Date of last full sheet load
+let pollTimer          = null;
+let isChecking         = false;
+
+// ── Sync UI helpers ───────────────────────────────────────────────────────────
+function setSyncState(state, text) {
+  const dot  = document.getElementById("sync-dot");
+  const txt  = document.getElementById("sync-text");
+  const icon = document.getElementById("sync-icon");
+  dot.className = ""; // reset
+  icon.classList.remove("spinning");
+  dot.classList.add(state); // fresh | stale | error | checking
+  txt.textContent = text;
+  if (state === "checking") icon.classList.add("spinning");
+}
+
+function formatTime(date) {
+  if (!date) return "never";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// ── Parse WKT ─────────────────────────────────────────────────────────────────
 function parseWKT(wkt) {
   if (!wkt || wkt === "NOT_FOUND") return [];
   return wkt.split("|").map(seg => {
@@ -408,7 +518,7 @@ function parseWKT(wkt) {
   }).filter(a => a && a.length >= 2);
 }
 
-// ── Build popup HTML ──────────────────────────────────────────────────────────
+// ── Popup HTML ────────────────────────────────────────────────────────────────
 function popupHtml(row) {
   const sk = statusKey(row.Status);
   const cls = sk === "complete" ? "ps-complete" : sk === "in progress" ? "ps-progress" : "ps-notstarted";
@@ -417,56 +527,48 @@ function popupHtml(row) {
           <span class="popup-status ${cls}">${row.Status || "Not started"}</span>`;
 }
 
-// ── Render / re-render lines ──────────────────────────────────────────────────
+// ── Render lines ──────────────────────────────────────────────────────────────
 function renderLines() {
-  // Clear all layers
   Object.values(layerGroups).forEach(g => g.clearLayers());
-
   allRoads.forEach(road => {
     const sk   = statusKey(road.Status);
     const ward = (road.Ward || "").trim();
-
-    if (!activeStatus.has(sk))   return;
-    if (!activeWards.has(ward))  return;
-
-    const segs = parseWKT(road.road_geometry);
+    if (!activeStatus.has(sk))  return;
+    if (!activeWards.has(ward)) return;
+    const segs   = parseWKT(road.road_geometry);
     const colour = colourFor(road.Status);
     const weight = STATUS_WEIGHT[sk] || 3;
-
     if (segs.length > 0) {
       segs.forEach(latlngs => {
-        const pl = L.polyline(latlngs, {
-          color: colour,
-          weight: weight,
-          opacity: 0.85
-        }).bindPopup(popupHtml(road));
-        layerGroups[ward].addLayer(pl);
+        L.polyline(latlngs, { color: colour, weight, opacity: 0.85 })
+          .bindPopup(popupHtml(road))
+          .addTo(layerGroups[ward]);
       });
     } else {
-      // Fallback pin
       const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
       if (!isNaN(lat) && !isNaN(lon)) {
-        const circle = L.circleMarker([lat, lon], {
-          radius: 5, color: colour, fillColor: colour,
-          fillOpacity: 0.8, weight: 1.5
-        }).bindPopup(popupHtml(road));
-        layerGroups[ward].addLayer(circle);
+        L.circleMarker([lat, lon], { radius: 5, color: colour, fillColor: colour, fillOpacity: 0.8, weight: 1.5 })
+          .bindPopup(popupHtml(road))
+          .addTo(layerGroups[ward]);
       }
     }
   });
 }
 
-// ── Update stats display ──────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 function updateStats() {
   const visible = allRoads.filter(r =>
     activeStatus.has(statusKey(r.Status)) && activeWards.has((r.Ward||"").trim())
   );
-  const c = visible.filter(r => statusKey(r.Status) === "complete").length;
-  const p = visible.filter(r => statusKey(r.Status) === "in progress").length;
-  const n = visible.filter(r => statusKey(r.Status) === "not started").length;
-  document.getElementById("stat-complete").textContent   = c;
-  document.getElementById("stat-progress").textContent   = p;
-  document.getElementById("stat-notstarted").textContent = n;
+  document.getElementById("stat-complete").textContent   = visible.filter(r => statusKey(r.Status) === "complete").length;
+  document.getElementById("stat-progress").textContent   = visible.filter(r => statusKey(r.Status) === "in progress").length;
+  document.getElementById("stat-notstarted").textContent = visible.filter(r => statusKey(r.Status) === "not started").length;
+}
+
+function updateCountBadges() {
+  document.getElementById("cnt-complete").textContent   = allRoads.filter(r => statusKey(r.Status) === "complete").length;
+  document.getElementById("cnt-progress").textContent   = allRoads.filter(r => statusKey(r.Status) === "in progress").length;
+  document.getElementById("cnt-notstarted").textContent = allRoads.filter(r => statusKey(r.Status) === "not started" || !r.Status).length;
 }
 
 // ── Status toggle ─────────────────────────────────────────────────────────────
@@ -482,20 +584,21 @@ function toggleStatus(btn) {
 function buildWardList(filter = "") {
   const container = document.getElementById("ward-list");
   container.innerHTML = "";
-  const wards = Object.keys(wardCounts).sort();
-  wards.filter(w => w.toLowerCase().includes(filter.toLowerCase())).forEach(ward => {
-    const chip = document.createElement("div");
-    chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
-    chip.innerHTML = `<span>${ward}</span><span class="ward-chip-count">${wardCounts[ward]}</span>`;
-    chip.onclick = () => {
-      if (activeWards.has(ward)) activeWards.delete(ward);
-      else                       activeWards.add(ward);
-      chip.classList.toggle("selected");
-      renderLines();
-      updateStats();
-    };
-    container.appendChild(chip);
-  });
+  Object.keys(wardCounts).sort()
+    .filter(w => w.toLowerCase().includes(filter.toLowerCase()))
+    .forEach(ward => {
+      const chip = document.createElement("div");
+      chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
+      chip.innerHTML = `<span>${ward}</span><span class="ward-chip-count">${wardCounts[ward]}</span>`;
+      chip.onclick = () => {
+        if (activeWards.has(ward)) activeWards.delete(ward);
+        else activeWards.add(ward);
+        chip.classList.toggle("selected");
+        renderLines();
+        updateStats();
+      };
+      container.appendChild(chip);
+    });
 }
 
 function filterWardList(val) { buildWardList(val); }
@@ -510,64 +613,139 @@ function selectAllWards() {
   updateStats();
 }
 
-// ── Count toggles ─────────────────────────────────────────────────────────────
-function updateCountBadges() {
-  document.getElementById("cnt-complete").textContent   = allRoads.filter(r => statusKey(r.Status) === "complete").length;
-  document.getElementById("cnt-progress").textContent   = allRoads.filter(r => statusKey(r.Status) === "in progress").length;
-  document.getElementById("cnt-notstarted").textContent = allRoads.filter(r => statusKey(r.Status) === "not started" || !r.Status).length;
-}
-
-// ── Load data ─────────────────────────────────────────────────────────────────
+// ── Error banner ──────────────────────────────────────────────────────────────
 function showError(msg) {
   const b = document.getElementById("error-banner");
   b.textContent = msg;
   b.style.display = "block";
+  setTimeout(() => { b.style.display = "none"; }, 8000);
 }
 
-const bustUrl = SHEET_CSV_URL + "&cachebust=" + Date.now();
-Papa.parse(CORS_PROXY + encodeURIComponent(bustUrl), {
-  download: true,
-  header: true,
-  skipEmptyLines: true,
-  complete(results) {
-    document.getElementById("loading").classList.add("hidden");
+// ── Full sheet load ───────────────────────────────────────────────────────────
+function loadFullSheet(checksum) {
+  return new Promise((resolve, reject) => {
+    document.getElementById("loading-msg").textContent = "Reloading road data…";
+    document.getElementById("loading").classList.remove("hidden");
+    const url = CORS_PROXY + encodeURIComponent(SHEET_CSV_URL + "&cachebust=" + Date.now());
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete(results) {
+        document.getElementById("loading").classList.add("hidden");
+        const rows = results.data.filter(r => r.Street && r.Street.trim() !== "");
+        if (rows.length === 0) {
+          reject(new Error("No data rows found."));
+          return;
+        }
 
-    // Filter to active rows only (Street column not blank)
-    allRoads = results.data.filter(r => r.Street && r.Street.trim() !== "");
+        // Preserve active ward selections across reloads
+        const prevActiveWards = new Set(activeWards);
 
-    if (allRoads.length === 0) {
-      showError("No data loaded. Make sure the Google Sheet is published publicly (File → Share → Publish to web).");
-      return;
+        // Reset state
+        allRoads = rows;
+        Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
+        layerGroups = {};
+        wardCounts  = {};
+        activeWards = new Set();
+
+        allRoads.forEach(r => {
+          const w = (r.Ward || "Unknown").trim();
+          wardCounts[w] = (wardCounts[w] || 0) + 1;
+        });
+
+        Object.keys(wardCounts).forEach(w => {
+          layerGroups[w] = L.layerGroup().addTo(map);
+          // Restore prior selection, or select all if first load
+          if (prevActiveWards.size === 0 || prevActiveWards.has(w)) activeWards.add(w);
+        });
+
+        buildWardList();
+        updateCountBadges();
+        renderLines();
+        updateStats();
+
+        // Fit bounds only on first load
+        if (!lastLoadTime) {
+          const pts = allRoads
+            .filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
+            .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
+          if (pts.length > 0) map.fitBounds(L.latLngBounds(pts).pad(0.05));
+        }
+
+        lastChecksum = checksum;
+        lastLoadTime = new Date();
+        setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
+        resolve();
+      },
+      error(err) {
+        document.getElementById("loading").classList.add("hidden");
+        reject(err);
+      }
+    });
+  });
+}
+
+// ── Checksum fetch ────────────────────────────────────────────────────────────
+// Fetches just cell A2849 — a tiny single-cell CSV — to see if data changed.
+// Put a formula like this in A2849 of your sheet:
+//   =COUNTIF(S2:S2848,"Complete")&"|"&COUNTIF(S2:S2848,"In Progress")&"|"&COUNTA(S2:S2848)
+// This produces a string like "142|37|848" that changes whenever statuses change.
+async function fetchChecksum() {
+  const url = CORS_PROXY + encodeURIComponent(CHECKSUM_RANGE_URL + "&cachebust=" + Date.now());
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  const text = await resp.text();
+  // PapaParse the tiny CSV to grab the first cell value
+  const parsed = Papa.parse(text.trim(), { header: false });
+  return (parsed.data[0]?.[0] || "").trim();
+}
+
+// ── Check-and-reload logic ────────────────────────────────────────────────────
+async function checkForUpdates(isManual = false) {
+  if (isChecking) return;
+  isChecking = true;
+  setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
+
+  try {
+    const checksum = await fetchChecksum();
+
+    if (checksum === "") {
+      // A2849 is blank — formula not set up yet; fall back to always loading
+      console.warn("Checksum cell A2849 is empty. Add a formula there for smart refresh. Reloading anyway.");
+      await loadFullSheet(null);
+    } else if (checksum !== lastChecksum) {
+      // Data changed (or first load) — fetch full sheet
+      await loadFullSheet(checksum);
+    } else {
+      // No change
+      lastLoadTime = lastLoadTime || new Date();
+      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
     }
-
-    // Build ward index
-    allRoads.forEach(r => {
-      const w = (r.Ward || "Unknown").trim();
-      wardCounts[w] = (wardCounts[w] || 0) + 1;
-    });
-
-    // Create a layer group per ward and add to map
-    Object.keys(wardCounts).forEach(w => {
-      layerGroups[w] = L.layerGroup().addTo(map);
-      activeWards.add(w);
-    });
-
-    buildWardList();
-    updateCountBadges();
-    renderLines();
-    updateStats();
-
-    // Fit map to rendered lines
-    const allLatLngs = allRoads
-      .filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
-      .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
-    if (allLatLngs.length > 0) map.fitBounds(L.latLngBounds(allLatLngs).pad(0.05));
-  },
-  error(err) {
-    document.getElementById("loading").classList.add("hidden");
-    showError(`Failed to load sheet: ${err.message}. Is the Google Sheet published publicly?`);
+  } catch (err) {
+    setSyncState("error", "Check failed · " + formatTime(lastLoadTime));
+    if (isManual) showError("Refresh failed: " + err.message);
+    console.error("Sync error:", err);
+  } finally {
+    isChecking = false;
+    schedulePoll();
   }
-});
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(() => checkForUpdates(false), POLL_INTERVAL_MS);
+}
+
+// ── Manual refresh (clicking stats or sync bar) ───────────────────────────────
+function manualRefresh() {
+  clearTimeout(pollTimer);
+  checkForUpdates(true);
+}
+
+// ── Initial load ──────────────────────────────────────────────────────────────
+checkForUpdates(false);
 </script>
 </body>
 </html>
