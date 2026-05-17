@@ -133,24 +133,8 @@
     padding: 10px 12px;
     text-align: center;
     border-right: 1px solid var(--border);
-    cursor: pointer;
-    transition: background 0.15s;
-    user-select: none;
-    position: relative;
   }
   .stat:last-child { border-right: none; }
-  .stat:hover { background: rgba(255,255,255,0.04); }
-  .stat:active { background: rgba(255,255,255,0.08); }
-  .stat::after {
-    content: '↻';
-    position: absolute;
-    top: 4px; right: 5px;
-    font-size: 9px;
-    color: var(--muted);
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
-  .stat:hover::after { opacity: 0.6; }
   .stat-num {
     font-family: 'DM Mono', monospace;
     font-size: 18px;
@@ -218,6 +202,73 @@
     font-family: 'DM Mono', monospace;
     font-size: 11px;
     color: var(--muted);
+  }
+
+  /* ── Road search ── */
+  .road-search-wrap {
+    position: relative;
+    margin-bottom: 0;
+  }
+  .road-search-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 7px 32px 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .road-search-input:focus { border-color: var(--accent); }
+  .road-search-input::placeholder { color: var(--muted); }
+  .road-search-clear {
+    position: absolute;
+    right: 8px; top: 50%;
+    transform: translateY(-50%);
+    background: none; border: none;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    display: none;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  .road-search-clear:hover { color: var(--text); }
+  .road-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    z-index: 2000;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+  }
+  .road-dropdown.open { display: block; }
+  .road-dropdown::-webkit-scrollbar { width: 4px; }
+  .road-dropdown::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .road-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.1s;
+  }
+  .road-option:last-child { border-bottom: none; }
+  .road-option:hover, .road-option.focused { background: rgba(79,142,247,0.12); color: var(--text); }
+  .road-option-name { font-weight: 500; color: var(--text); }
+  .road-option-meta { font-size: 10px; color: var(--muted); margin-top: 1px; font-family: 'DM Mono', monospace; }
+  .road-no-results {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    text-align: center;
   }
 
   /* Ward filters */
@@ -391,15 +442,15 @@
     </div>
 
     <div id="stats">
-      <div class="stat" title="Click to refresh data" onclick="manualRefresh()">
+      <div class="stat">
         <div class="stat-num green" id="stat-complete">0</div>
         <div class="stat-label">Complete</div>
       </div>
-      <div class="stat" title="Click to refresh data" onclick="manualRefresh()">
+      <div class="stat">
         <div class="stat-num yellow" id="stat-progress">0</div>
         <div class="stat-label">In Progress</div>
       </div>
-      <div class="stat" title="Click to refresh data" onclick="manualRefresh()">
+      <div class="stat">
         <div class="stat-num red" id="stat-notstarted">0</div>
         <div class="stat-label">Not Started</div>
       </div>
@@ -421,6 +472,20 @@
             <span class="status-dot dot-red"></span> Not Started
             <span class="toggle-count" id="cnt-notstarted">0</span>
           </button>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <div class="filter-label">Road Search</div>
+        <div class="road-search-wrap">
+          <input class="road-search-input" id="road-search-input" type="text"
+            placeholder="Search roads…"
+            autocomplete="off"
+            oninput="onRoadSearchInput(this.value)"
+            onkeydown="onRoadSearchKey(event)"
+            onfocus="onRoadSearchInput(this.value)">
+          <button class="road-search-clear" id="road-search-clear" onclick="clearRoadSearch()" title="Clear">✕</button>
+          <div class="road-dropdown" id="road-dropdown"></div>
         </div>
       </div>
 
@@ -664,6 +729,7 @@ function loadFullSheet(checksum) {
         updateCountBadges();
         renderLines();
         updateStats();
+        buildRoadSearchIndex();
 
         // Fit bounds only on first load
         if (!lastLoadTime) {
@@ -742,6 +808,120 @@ function schedulePoll() {
 function manualRefresh() {
   clearTimeout(pollTimer);
   checkForUpdates(true);
+}
+
+// ── Road Search ───────────────────────────────────────────────────────────────
+// Roads can span multiple wards, so we group all rows sharing the same Street
+// name and fit bounds across ALL of them when one is selected.
+
+let roadSearchIndex = [];   // [{name, wards, allLatLngs, rows}]
+let dropdownFocusIdx = -1;
+
+function buildRoadSearchIndex() {
+  const map_ = {};
+  allRoads.forEach(row => {
+    const name = (row.Street || "").trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (!map_[key]) map_[key] = { name, wards: new Set(), allLatLngs: [], rows: [] };
+    map_[key].wards.add((row.Ward || "Unknown").trim());
+    map_[key].rows.push(row);
+    // Collect lat/lon fallbacks
+    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+    if (!isNaN(lat) && !isNaN(lon)) map_[key].allLatLngs.push([lat, lon]);
+    // Also harvest points from WKT geometry
+    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => map_[key].allLatLngs.push(pt)));
+  });
+  roadSearchIndex = Object.values(map_).sort((a,b) => a.name.localeCompare(b.name));
+}
+
+function onRoadSearchInput(val) {
+  const clearBtn = document.getElementById("road-search-clear");
+  const dropdown = document.getElementById("road-dropdown");
+  clearBtn.style.display = val ? "block" : "none";
+  dropdownFocusIdx = -1;
+  if (!val.trim()) { dropdown.classList.remove("open"); return; }
+  const q = val.trim().toLowerCase();
+  const matches = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q)).slice(0, 40);
+  if (matches.length === 0) {
+    dropdown.innerHTML = `<div class="road-no-results">No roads found</div>`;
+  } else {
+    dropdown.innerHTML = matches.map((r, i) => {
+      const wardList = [...r.wards].sort().join(", ");
+      return `<div class="road-option" data-idx="${i}" onmousedown="selectRoad(${i}, event)">
+        <div class="road-option-name">${escHtml(r.name)}</div>
+        <div class="road-option-meta">${escHtml(wardList)}</div>
+      </div>`;
+    }).join("");
+    // stash current matches for keyboard nav
+    dropdown._matches = matches;
+  }
+  dropdown.classList.add("open");
+}
+
+function onRoadSearchKey(e) {
+  const dropdown = document.getElementById("road-dropdown");
+  const options  = dropdown.querySelectorAll(".road-option");
+  if (!dropdown.classList.contains("open") || options.length === 0) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    dropdownFocusIdx = Math.min(dropdownFocusIdx + 1, options.length - 1);
+    updateDropdownFocus(options);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    dropdownFocusIdx = Math.max(dropdownFocusIdx - 1, 0);
+    updateDropdownFocus(options);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (dropdownFocusIdx >= 0 && dropdown._matches) {
+      flyToRoad(dropdown._matches[dropdownFocusIdx]);
+      closeDropdown();
+    }
+  } else if (e.key === "Escape") {
+    closeDropdown();
+  }
+}
+
+function updateDropdownFocus(options) {
+  options.forEach((el, i) => el.classList.toggle("focused", i === dropdownFocusIdx));
+  if (options[dropdownFocusIdx]) options[dropdownFocusIdx].scrollIntoView({ block: "nearest" });
+}
+
+function selectRoad(idx, e) {
+  e.preventDefault(); // prevent blur before we act
+  const dropdown = document.getElementById("road-dropdown");
+  if (!dropdown._matches) return;
+  const road = dropdown._matches[idx];
+  document.getElementById("road-search-input").value = road.name;
+  flyToRoad(road);
+  closeDropdown();
+}
+
+function flyToRoad(road) {
+  if (road.allLatLngs.length === 0) return;
+  const bounds = L.latLngBounds(road.allLatLngs).pad(0.08);
+  map.fitBounds(bounds, { maxZoom: 17 });
+}
+
+function closeDropdown() {
+  const dropdown = document.getElementById("road-dropdown");
+  dropdown.classList.remove("open");
+  dropdownFocusIdx = -1;
+}
+
+function clearRoadSearch() {
+  document.getElementById("road-search-input").value = "";
+  document.getElementById("road-search-clear").style.display = "none";
+  closeDropdown();
+}
+
+// Close dropdown when clicking elsewhere
+document.addEventListener("click", e => {
+  if (!e.target.closest(".road-search-wrap")) closeDropdown();
+});
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
 // ── Initial load ──────────────────────────────────────────────────────────────
