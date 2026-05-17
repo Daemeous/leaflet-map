@@ -292,6 +292,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <script>
@@ -1081,13 +1082,14 @@ function showEditMsg(editDiv, msg, type) {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async function boot() {
-  // 1. Restore cached auth session (if consent given)
+  // 1. Restore cached auth session (if consent given and session still valid)
   restoreAuthSession();
 
-  // 2. Show cookie banner only if consent not yet given and we have no cached choice
-  if (!cookieConsent()) showCookieBanner();
+  // Cookie banner is NOT shown at boot — only shown after an authorised user
+  // signs in (see processSignIn). The road data cache uses localStorage purely
+  // for performance/functionality and does not require consent under PECR.
 
-  // 3. Try to load from localStorage cache first for instant render
+  // 2. Try to load from localStorage cache first for instant render
   const cached = loadFromCache();
   if (cached && cached.rows && cached.rows.length) {
     document.getElementById("loading-msg").textContent = "Loading from cache…";
@@ -1096,10 +1098,10 @@ function showEditMsg(editDiv, msg, type) {
     ingestRows(cached.rows, cached.checksum, cached.time, true);
     document.getElementById("loading").classList.add("hidden");
     setSyncState("stale", "Cached · checking…");
-    // 4. Then check for updates in background
+    // 3. Then check for updates in the background
     checkForUpdates(false);
   } else {
-    // 5. No cache — do a full fresh load
+    // 3. No cache — do a full fresh load
     checkForUpdates(false);
   }
 })();
