@@ -1327,12 +1327,24 @@ function showStatusPicker(editDiv, rowRef) {
     <div class="popup-status-select">
       ${opts.map(o => `
         <button class="popup-status-option ${o.cls}${o.key === current ? " current" : ""}"
-          onclick="submitStatusChange(${rowRef.rowIdx}, '${o.label}', this)">
+          data-row="${rowRef.rowIdx}"
+          data-status="${o.label}">
           ${o.label}${o.key === current ? " ✓" : ""}
         </button>
       `).join("")}
     </div>
   `;
+
+  // Attach click handlers directly — no inline args, no HTML parsing issues
+  editDiv.querySelectorAll(".popup-status-option:not(.current)").forEach(btn => {
+    btn.addEventListener("click", function() {
+      submitStatusChange(
+        parseInt(this.dataset.row, 10),
+        this.dataset.status,
+        this
+      );
+    });
+  });
 }
 
 // ── Submit the status change to Apps Script ───────────────────────────────────
