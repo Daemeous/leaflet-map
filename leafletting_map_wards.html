@@ -46,7 +46,7 @@
 
   /* ── Sidebar header ── */
   .sidebar-head {
-    padding: 20px 20px 16px;
+    padding: 20px 20px 14px;
     border-bottom: 1px solid var(--border);
   }
   .sidebar-head h1 {
@@ -62,7 +62,65 @@
     font-size: 12px;
     color: var(--muted);
     line-height: 1.5;
+    margin-bottom: 10px;
   }
+
+  /* ── Sync status bar ── */
+  #sync-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  #sync-bar:hover { background: rgba(255,255,255,0.07); border-color: var(--muted); }
+  #sync-bar:active { background: rgba(255,255,255,0.1); }
+
+  #sync-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  #sync-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--muted);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  #sync-dot.fresh  { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+  #sync-dot.stale  { background: var(--yellow); box-shadow: 0 0 5px var(--yellow); }
+  #sync-dot.error  { background: var(--red);    box-shadow: 0 0 5px var(--red); }
+  #sync-dot.checking {
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
+    animation: pulse-dot 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes pulse-dot { from { opacity: 1; } to { opacity: 0.3; } }
+
+  #sync-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #sync-icon {
+    font-size: 13px;
+    color: var(--muted);
+    flex-shrink: 0;
+    transition: transform 0.4s;
+  }
+  #sync-icon.spinning { animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Stats bar ── */
   #stats {
@@ -144,6 +202,79 @@
     font-family: 'DM Mono', monospace;
     font-size: 11px;
     color: var(--muted);
+  }
+
+  /* ── Road search ── */
+  .road-search-wrap {
+    position: relative;
+    margin-bottom: 0;
+  }
+  .road-search-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 7px 32px 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .road-search-input:focus { border-color: var(--accent); }
+  .road-search-input::placeholder { color: var(--muted); }
+  .road-search-clear {
+    position: absolute;
+    right: 8px; top: 50%;
+    transform: translateY(-50%);
+    background: none; border: none;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    display: none;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  .road-search-clear:hover { color: var(--text); }
+  .road-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    z-index: 2000;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+  }
+  .road-dropdown.open { display: block; }
+  .road-dropdown::-webkit-scrollbar { width: 4px; }
+  .road-dropdown::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .road-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.1s;
+    background: rgba(79,142,247,0.07);
+  }
+  .road-option.out-of-ward {
+    background: rgba(0,0,0,0.35);
+  }
+  .road-option:last-child { border-bottom: none; }
+  .road-option:hover, .road-option.focused { background: rgba(79,142,247,0.22) !important; color: var(--text); }
+  .road-option-name { font-weight: 500; color: var(--text); }
+  .road-option-meta { font-size: 10px; margin-top: 1px; font-family: 'DM Mono', monospace; }
+  .road-option-ward-in  { color: #7ab8f5; }
+  .road-option-ward-out { color: var(--muted); opacity: 0.65; }
+  .road-no-results {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    text-align: center;
   }
 
   /* Ward filters */
@@ -228,7 +359,6 @@
     animation: spin 0.8s linear infinite;
     margin-bottom: 14px;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
   #loading p { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
 
   /* ── Error banner ── */
@@ -280,6 +410,103 @@
   .ps-progress   { background: rgba(245,200,66,0.15); color: var(--yellow); }
   .ps-notstarted { background: rgba(247,95,95,0.15);  color: var(--red); }
 
+  /* ── Popup edit UI ── */
+  .popup-status-btn {
+    cursor: pointer;
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    display: inline-block;
+    transition: filter 0.15s, transform 0.1s;
+  }
+  .popup-status-btn:hover { filter: brightness(1.3); transform: scale(1.04); }
+  .popup-status-btn::after {
+    content: ' ✎';
+    font-size: 9px;
+    opacity: 0.55;
+    vertical-align: middle;
+  }
+  .popup-edit-area {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .popup-auth-msg {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+  .popup-auth-msg.error { color: var(--red); }
+  .popup-auth-msg.success { color: var(--green); }
+  .popup-signin-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    width: 100%;
+    justify-content: center;
+  }
+  .popup-signin-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--muted); }
+  .popup-signin-btn svg { flex-shrink: 0; }
+  .popup-status-select {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .popup-status-option {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    color: var(--text);
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    text-align: left;
+    width: 100%;
+  }
+  .popup-status-option:hover { background: rgba(255,255,255,0.09); border-color: var(--muted); }
+  .popup-status-option.current { opacity: 0.4; cursor: default; pointer-events: none; }
+  .popup-status-option.opt-complete   { border-left: 3px solid var(--green); }
+  .popup-status-option.opt-progress   { border-left: 3px solid var(--yellow); }
+  .popup-status-option.opt-notstarted { border-left: 3px solid var(--red); }
+  .popup-saving {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    text-align: center;
+    padding: 4px 0;
+  }
+  .popup-user-line {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .popup-signout-link {
+    color: var(--muted);
+    font-size: 10px;
+    cursor: pointer;
+    text-decoration: underline;
+    background: none; border: none; padding: 0; font-family: 'DM Mono', monospace;
+  }
+  .popup-signout-link:hover { color: var(--text); }
+
   /* Mobile toggle */
   #sidebar-toggle {
     display: none;
@@ -308,6 +535,13 @@
     <div class="sidebar-head">
       <h1>Leafletting Map</h1>
       <p>Filter roads by ward or completion status.</p>
+      <div id="sync-bar" title="Click to check for updates now" onclick="manualRefresh()">
+        <div id="sync-left">
+          <div id="sync-dot"></div>
+          <span id="sync-text">Loading…</span>
+        </div>
+        <span id="sync-icon">↻</span>
+      </div>
     </div>
 
     <div id="stats">
@@ -345,6 +579,20 @@
       </div>
 
       <div class="filter-section">
+        <div class="filter-label">Road Search</div>
+        <div class="road-search-wrap">
+          <input class="road-search-input" id="road-search-input" type="text"
+            placeholder="Search roads…"
+            autocomplete="off"
+            oninput="onRoadSearchInput(this.value)"
+            onkeydown="onRoadSearchKey(event)"
+            onfocus="onRoadSearchInput(this.value)">
+          <button class="road-search-clear" id="road-search-clear" onclick="clearRoadSearch()" title="Clear">✕</button>
+          <div class="road-dropdown" id="road-dropdown"></div>
+        </div>
+      </div>
+
+      <div class="filter-section">
         <div class="filter-label">Ward</div>
         <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
         <button class="ward-all-btn" onclick="selectAllWards()">Select / deselect all</button>
@@ -356,19 +604,39 @@
   <div id="map-wrap">
     <button id="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
     <div id="map"></div>
-    <div id="loading"><div class="spinner"></div><p>Loading road data…</p></div>
+    <div id="loading"><div class="spinner"></div><p id="loading-msg">Loading road data…</p></div>
     <div id="error-banner"></div>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <script>
-// ── CONFIG — update SHEET_CSV_URL when the sheet is public ──────────────────
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRbbW7Fx0K_PsgqRR6joNV4lzOdn1Q7AQY2bieG_L5-Rypu7_ayMNUNx3c0diPGN2MLHkUDB7F8vapc/pub?gid=887349948&single=true&output=csv";
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSF6ppshV-wUUrhR03qNeS-40LM14wE0DN0vAkG4T0CVmGmiADevOsaMGIIeJ0DC97MlqXOlSNjCBn9/pub?gid=0&single=true&output=csv";
 const CORS_PROXY    = "https://corsproxy.io/?url=";
-// ────────────────────────────────────────────────────────────────────────────
+
+// Checksum cell: A2849 — a formula in your sheet that reads from the Status column
+// e.g. =COUNTA(S2:S2848)&"|"&COUNTIF(S2:S2848,"Complete")&"|"&COUNTIF(S2:S2848,"In Progress")
+// The CSV range URL fetches just that single cell cheaply.
+// NOTE: do NOT include single=true here — it overrides the range parameter.
+// This URL fetches only the A2849 cell as a tiny one-cell CSV.
+const CHECKSUM_RANGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&single=true&output=csv";
+
+// How often to poll for checksum changes (15 minutes)
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
+
+// ── AUTH / EDIT CONFIG — fill these in ───────────────────────────────────────
+// 1. Google OAuth client ID (safe to be public — not a secret)
+//    Create one at console.cloud.google.com → APIs & Services → Credentials
+//    Add your page's origin to "Authorised JavaScript origins"
+const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+
+// 2. Your Apps Script Web App URL (deployed as "Anyone can access")
+const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
+// ─────────────────────────────────────────────────────────────────────────────
 
 const STATUS_COLOURS = {
   "complete":    "#3ecf6e",
@@ -380,7 +648,7 @@ const STATUS_WEIGHT = { "complete": 4, "in progress": 4, "not started": 3 };
 function statusKey(s) { return (s || "").trim().toLowerCase(); }
 function colourFor(s) { return STATUS_COLOURS[statusKey(s)] || "#f75f5f"; }
 
-// ── Map init ─────────────────────────────────────────────────────────────────
+// ── Map init ──────────────────────────────────────────────────────────────────
 const map = L.map("map", { zoomControl: true }).setView([52.8, -2.12], 12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -388,13 +656,42 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let allRoads    = [];          // parsed rows with geometry
-let layerGroups = {};          // ward -> L.LayerGroup
+let allRoads     = [];
+let layerGroups  = {};
 let activeStatus = new Set(["complete","in progress","not started"]);
 let activeWards  = new Set();
 let wardCounts   = {};
 
-// ── Parse WKT linestring(s) to Leaflet LatLng arrays ─────────────────────────
+let lastChecksum       = null;
+let lastLoadTime       = null;
+let pollTimer          = null;
+let isChecking         = false;
+let selectedRoadName   = null;   // street name currently highlighted via search
+
+// ── Auth state ────────────────────────────────────────────────────────────────
+let authToken     = null;   // Google ID token (JWT), refreshed as needed
+let authEmail     = null;   // signed-in email for display
+let authExpiry    = 0;      // token expiry (epoch ms) — GIS tokens last 1 hour
+let authAuthorised = false; // confirmed against Apps Script allowlist
+
+// ── Sync UI helpers ───────────────────────────────────────────────────────────
+function setSyncState(state, text) {
+  const dot  = document.getElementById("sync-dot");
+  const txt  = document.getElementById("sync-text");
+  const icon = document.getElementById("sync-icon");
+  dot.className = ""; // reset
+  icon.classList.remove("spinning");
+  dot.classList.add(state); // fresh | stale | error | checking
+  txt.textContent = text;
+  if (state === "checking") icon.classList.add("spinning");
+}
+
+function formatTime(date) {
+  if (!date) return "never";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// ── Parse WKT ─────────────────────────────────────────────────────────────────
 function parseWKT(wkt) {
   if (!wkt || wkt === "NOT_FOUND") return [];
   return wkt.split("|").map(seg => {
@@ -408,65 +705,104 @@ function parseWKT(wkt) {
   }).filter(a => a && a.length >= 2);
 }
 
-// ── Build popup HTML ──────────────────────────────────────────────────────────
+// ── Popup HTML ────────────────────────────────────────────────────────────────
+// rowIdx is the 1-based sheet row number (data starts at row 2, so index in
+// allRoads array + 2). We store it on the row object when data loads.
 function popupHtml(row) {
-  const sk = statusKey(row.Status);
+  const sk  = statusKey(row.Status);
   const cls = sk === "complete" ? "ps-complete" : sk === "in progress" ? "ps-progress" : "ps-notstarted";
-  return `<div class="popup-street">${row.Street}</div>
-          <div class="popup-ward">${row.Ward}</div>
-          <span class="popup-status ${cls}">${row.Status || "Not started"}</span>`;
+  const label = row.Status || "Not started";
+  // Encode row reference safely for the inline onclick
+  const rowRef = encodeURIComponent(JSON.stringify({ rowIdx: row._rowIdx, street: row.Street, ward: row.Ward }));
+  return `
+    <div class="popup-street">${escHtml(row.Street)}</div>
+    <div class="popup-ward">${escHtml(row.Ward)}</div>
+    <button class="popup-status-btn" onclick="popupEditClicked(this, '${rowRef}')" title="Click to change status">
+      <span class="popup-status ${cls}">${escHtml(label)}</span>
+    </button>
+    <div class="popup-edit-area" id="edit-${row._rowIdx}" style="display:none"></div>
+  `;
 }
 
-// ── Render / re-render lines ──────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Render lines ──────────────────────────────────────────────────────────────
+// When a road is selected via search, all other roads are dimmed and the
+// selected road's segments are redrawn on top with a glow underline.
 function renderLines() {
-  // Clear all layers
   Object.values(layerGroups).forEach(g => g.clearLayers());
+
+  const hasSelection = !!selectedRoadName;
+  const selKey = selectedRoadName ? selectedRoadName.toLowerCase() : null;
 
   allRoads.forEach(road => {
     const sk   = statusKey(road.Status);
     const ward = (road.Ward || "").trim();
+    if (!activeStatus.has(sk))  return;
+    if (!activeWards.has(ward)) return;
 
-    if (!activeStatus.has(sk))   return;
-    if (!activeWards.has(ward))  return;
+    const segs    = parseWKT(road.road_geometry);
+    const colour  = colourFor(road.Status);
+    const weight  = STATUS_WEIGHT[sk] || 3;
+    const isSelected = hasSelection && (road.Street || "").trim().toLowerCase() === selKey;
 
-    const segs = parseWKT(road.road_geometry);
-    const colour = colourFor(road.Status);
-    const weight = STATUS_WEIGHT[sk] || 3;
+    // Dim non-selected roads when something is selected
+    const opacity = hasSelection && !isSelected ? 0.15 : 0.85;
 
     if (segs.length > 0) {
       segs.forEach(latlngs => {
-        const pl = L.polyline(latlngs, {
-          color: colour,
-          weight: weight,
-          opacity: 0.85
-        }).bindPopup(popupHtml(road));
-        layerGroups[ward].addLayer(pl);
+        if (isSelected) {
+          // Glow layer underneath (wider, semi-transparent white)
+          L.polyline(latlngs, {
+            color: "#ffffff",
+            weight: weight + 6,
+            opacity: 0.25,
+            interactive: false
+          }).addTo(layerGroups[ward]);
+          // Bright colour layer on top
+          L.polyline(latlngs, {
+            color: colour,
+            weight: weight + 2,
+            opacity: 1
+          }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
+        } else {
+          L.polyline(latlngs, { color: colour, weight, opacity })
+            .bindPopup(popupHtml(road))
+            .addTo(layerGroups[ward]);
+        }
       });
     } else {
-      // Fallback pin
       const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
       if (!isNaN(lat) && !isNaN(lon)) {
-        const circle = L.circleMarker([lat, lon], {
-          radius: 5, color: colour, fillColor: colour,
-          fillOpacity: 0.8, weight: 1.5
-        }).bindPopup(popupHtml(road));
-        layerGroups[ward].addLayer(circle);
+        L.circleMarker([lat, lon], {
+          radius: isSelected ? 7 : 5,
+          color: colour,
+          fillColor: colour,
+          fillOpacity: hasSelection && !isSelected ? 0.2 : 0.8,
+          weight: 1.5,
+          opacity
+        }).bindPopup(popupHtml(road)).addTo(layerGroups[ward]);
       }
     }
   });
 }
 
-// ── Update stats display ──────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 function updateStats() {
   const visible = allRoads.filter(r =>
     activeStatus.has(statusKey(r.Status)) && activeWards.has((r.Ward||"").trim())
   );
-  const c = visible.filter(r => statusKey(r.Status) === "complete").length;
-  const p = visible.filter(r => statusKey(r.Status) === "in progress").length;
-  const n = visible.filter(r => statusKey(r.Status) === "not started").length;
-  document.getElementById("stat-complete").textContent   = c;
-  document.getElementById("stat-progress").textContent   = p;
-  document.getElementById("stat-notstarted").textContent = n;
+  document.getElementById("stat-complete").textContent   = visible.filter(r => statusKey(r.Status) === "complete").length;
+  document.getElementById("stat-progress").textContent   = visible.filter(r => statusKey(r.Status) === "in progress").length;
+  document.getElementById("stat-notstarted").textContent = visible.filter(r => statusKey(r.Status) === "not started").length;
+}
+
+function updateCountBadges() {
+  document.getElementById("cnt-complete").textContent   = allRoads.filter(r => statusKey(r.Status) === "complete").length;
+  document.getElementById("cnt-progress").textContent   = allRoads.filter(r => statusKey(r.Status) === "in progress").length;
+  document.getElementById("cnt-notstarted").textContent = allRoads.filter(r => statusKey(r.Status) === "not started" || !r.Status).length;
 }
 
 // ── Status toggle ─────────────────────────────────────────────────────────────
@@ -482,20 +818,21 @@ function toggleStatus(btn) {
 function buildWardList(filter = "") {
   const container = document.getElementById("ward-list");
   container.innerHTML = "";
-  const wards = Object.keys(wardCounts).sort();
-  wards.filter(w => w.toLowerCase().includes(filter.toLowerCase())).forEach(ward => {
-    const chip = document.createElement("div");
-    chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
-    chip.innerHTML = `<span>${ward}</span><span class="ward-chip-count">${wardCounts[ward]}</span>`;
-    chip.onclick = () => {
-      if (activeWards.has(ward)) activeWards.delete(ward);
-      else                       activeWards.add(ward);
-      chip.classList.toggle("selected");
-      renderLines();
-      updateStats();
-    };
-    container.appendChild(chip);
-  });
+  Object.keys(wardCounts).sort()
+    .filter(w => w.toLowerCase().includes(filter.toLowerCase()))
+    .forEach(ward => {
+      const chip = document.createElement("div");
+      chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
+      chip.innerHTML = `<span>${ward}</span><span class="ward-chip-count">${wardCounts[ward]}</span>`;
+      chip.onclick = () => {
+        if (activeWards.has(ward)) activeWards.delete(ward);
+        else activeWards.add(ward);
+        chip.classList.toggle("selected");
+        renderLines();
+        updateStats();
+      };
+      container.appendChild(chip);
+    });
 }
 
 function filterWardList(val) { buildWardList(val); }
@@ -510,64 +847,548 @@ function selectAllWards() {
   updateStats();
 }
 
-// ── Count toggles ─────────────────────────────────────────────────────────────
-function updateCountBadges() {
-  document.getElementById("cnt-complete").textContent   = allRoads.filter(r => statusKey(r.Status) === "complete").length;
-  document.getElementById("cnt-progress").textContent   = allRoads.filter(r => statusKey(r.Status) === "in progress").length;
-  document.getElementById("cnt-notstarted").textContent = allRoads.filter(r => statusKey(r.Status) === "not started" || !r.Status).length;
-}
-
-// ── Load data ─────────────────────────────────────────────────────────────────
+// ── Error banner ──────────────────────────────────────────────────────────────
 function showError(msg) {
   const b = document.getElementById("error-banner");
   b.textContent = msg;
   b.style.display = "block";
+  setTimeout(() => { b.style.display = "none"; }, 8000);
 }
 
-const bustUrl = SHEET_CSV_URL + "&cachebust=" + Date.now();
-Papa.parse(CORS_PROXY + encodeURIComponent(bustUrl), {
-  download: true,
-  header: true,
-  skipEmptyLines: true,
-  complete(results) {
-    document.getElementById("loading").classList.add("hidden");
+// ── Full sheet load ───────────────────────────────────────────────────────────
+function loadFullSheet(checksum) {
+  return new Promise((resolve, reject) => {
+    document.getElementById("loading-msg").textContent = "Reloading road data…";
+    document.getElementById("loading").classList.remove("hidden");
+    const url = CORS_PROXY + encodeURIComponent(SHEET_CSV_URL + "&cachebust=" + Date.now());
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete(results) {
+        document.getElementById("loading").classList.add("hidden");
+        const rows = results.data.filter(r => r.Street && r.Street.trim() !== "");
+        if (rows.length === 0) {
+          reject(new Error("No data rows found."));
+          return;
+        }
 
-    // Filter to active rows only (Street column not blank)
-    allRoads = results.data.filter(r => r.Street && r.Street.trim() !== "");
+        // Preserve active ward selections across reloads
+        const prevActiveWards = new Set(activeWards);
 
-    if (allRoads.length === 0) {
-      showError("No data loaded. Make sure the Google Sheet is published publicly (File → Share → Publish to web).");
+        // Reset state
+        allRoads = rows;
+        // Tag each row with its 1-based sheet row index (header = row 1, data from row 2)
+        allRoads.forEach((r, i) => { r._rowIdx = i + 2; });
+        Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
+        layerGroups = {};
+        wardCounts  = {};
+        activeWards = new Set();
+
+        allRoads.forEach(r => {
+          const w = (r.Ward || "Unknown").trim();
+          wardCounts[w] = (wardCounts[w] || 0) + 1;
+        });
+
+        Object.keys(wardCounts).forEach(w => {
+          layerGroups[w] = L.layerGroup().addTo(map);
+          // Restore prior selection, or select all if first load
+          if (prevActiveWards.size === 0 || prevActiveWards.has(w)) activeWards.add(w);
+        });
+
+        buildWardList();
+        updateCountBadges();
+        renderLines();
+        updateStats();
+        buildRoadSearchIndex();
+
+        // Fit bounds only on first load
+        if (!lastLoadTime) {
+          const pts = allRoads
+            .filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
+            .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
+          if (pts.length > 0) map.fitBounds(L.latLngBounds(pts).pad(0.05));
+        }
+
+        lastChecksum = checksum;
+        lastLoadTime = new Date();
+        setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
+        resolve();
+      },
+      error(err) {
+        document.getElementById("loading").classList.add("hidden");
+        reject(err);
+      }
+    });
+  });
+}
+
+// ── Checksum fetch ────────────────────────────────────────────────────────────
+// Fetches just cell A2849 — a tiny single-cell CSV — to see if data changed.
+// Put a formula like this in A2849 of your sheet:
+//   =COUNTIF(S2:S2848,"Complete")&"|"&COUNTIF(S2:S2848,"In Progress")&"|"&COUNTA(S2:S2848)
+// This produces a string like "142|37|848" that changes whenever statuses change.
+async function fetchChecksum() {
+  const url = CORS_PROXY + encodeURIComponent(CHECKSUM_RANGE_URL + "&cachebust=" + Date.now());
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  const text = await resp.text();
+  // PapaParse the tiny CSV to grab the first cell value
+  const parsed = Papa.parse(text.trim(), { header: false });
+  return (parsed.data[0]?.[0] || "").trim();
+}
+
+// ── Check-and-reload logic ────────────────────────────────────────────────────
+async function checkForUpdates(isManual = false) {
+  if (isChecking) return;
+  isChecking = true;
+  setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
+
+  try {
+    const checksum = await fetchChecksum();
+
+    if (checksum === "") {
+      // A2849 is blank — formula not set up yet; fall back to always loading
+      console.warn("Checksum cell A2849 is empty. Add a formula there for smart refresh. Reloading anyway.");
+      await loadFullSheet(null);
+    } else if (checksum !== lastChecksum) {
+      // Data changed (or first load) — fetch full sheet
+      await loadFullSheet(checksum);
+    } else {
+      // No change
+      lastLoadTime = lastLoadTime || new Date();
+      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
+    }
+  } catch (err) {
+    setSyncState("error", "Check failed · " + formatTime(lastLoadTime));
+    if (isManual) showError("Refresh failed: " + err.message);
+    console.error("Sync error:", err);
+  } finally {
+    isChecking = false;
+    schedulePoll();
+  }
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(() => checkForUpdates(false), POLL_INTERVAL_MS);
+}
+
+// ── Manual refresh (clicking stats or sync bar) ───────────────────────────────
+function manualRefresh() {
+  clearTimeout(pollTimer);
+  checkForUpdates(true);
+}
+
+// ── Road Search ───────────────────────────────────────────────────────────────
+
+let roadSearchIndex  = [];  // [{name, wards:Set, allLatLngs, rows}]
+let dropdownFocusIdx = -1;
+
+function buildRoadSearchIndex() {
+  const map_ = {};
+  allRoads.forEach(row => {
+    const name = (row.Street || "").trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (!map_[key]) map_[key] = { name, wards: new Set(), allLatLngs: [], rows: [] };
+    map_[key].wards.add((row.Ward || "Unknown").trim());
+    map_[key].rows.push(row);
+    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+    if (!isNaN(lat) && !isNaN(lon)) map_[key].allLatLngs.push([lat, lon]);
+    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => map_[key].allLatLngs.push(pt)));
+  });
+  roadSearchIndex = Object.values(map_).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Returns true if the road has any rows in currently active wards
+function roadInActiveWards(road) {
+  return road.rows.some(r => activeWards.has((r.Ward || "Unknown").trim()));
+}
+
+function onRoadSearchInput(val) {
+  const clearBtn = document.getElementById("road-search-clear");
+  const dropdown = document.getElementById("road-dropdown");
+  clearBtn.style.display = val ? "block" : "none";
+  dropdownFocusIdx = -1;
+  if (!val.trim()) { dropdown.classList.remove("open"); return; }
+
+  const q = val.trim().toLowerCase();
+  const all = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q));
+
+  // Sort: roads in active wards first, then alphabetically within each group
+  const inWard  = all.filter(r =>  roadInActiveWards(r));
+  const outWard = all.filter(r => !roadInActiveWards(r));
+  const matches = [...inWard, ...outWard].slice(0, 40);
+
+  if (matches.length === 0) {
+    dropdown.innerHTML = `<div class="road-no-results">No roads found</div>`;
+    dropdown._matches = [];
+  } else {
+    dropdown.innerHTML = matches.map((r, i) => {
+      const inActive = roadInActiveWards(r);
+      const wardHtml = [...r.wards].sort().map(w => {
+        const cls = activeWards.has(w) ? "road-option-ward-in" : "road-option-ward-out";
+        return `<span class="${cls}">${escHtml(w)}</span>`;
+      }).join('<span style="color:var(--border)"> · </span>');
+      return `<div class="road-option${inActive ? "" : " out-of-ward"}" data-idx="${i}" onmousedown="selectRoad(${i}, event)">
+        <div class="road-option-name">${escHtml(r.name)}</div>
+        <div class="road-option-meta">${wardHtml}</div>
+      </div>`;
+    }).join("");
+    dropdown._matches = matches;
+  }
+  dropdown.classList.add("open");
+}
+
+function onRoadSearchKey(e) {
+  const dropdown = document.getElementById("road-dropdown");
+  const options  = dropdown.querySelectorAll(".road-option");
+  if (!dropdown.classList.contains("open") || options.length === 0) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    dropdownFocusIdx = Math.min(dropdownFocusIdx + 1, options.length - 1);
+    updateDropdownFocus(options);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    dropdownFocusIdx = Math.max(dropdownFocusIdx - 1, 0);
+    updateDropdownFocus(options);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (dropdownFocusIdx >= 0 && dropdown._matches && dropdown._matches[dropdownFocusIdx]) {
+      selectedRoadName = null; // clear previous before activating new
+      activateRoad(dropdown._matches[dropdownFocusIdx]);
+      closeDropdown();
+    }
+  } else if (e.key === "Escape") {
+    clearSelection();
+    closeDropdown();
+  }
+}
+
+function updateDropdownFocus(options) {
+  options.forEach((el, i) => el.classList.toggle("focused", i === dropdownFocusIdx));
+  if (options[dropdownFocusIdx]) options[dropdownFocusIdx].scrollIntoView({ block: "nearest" });
+}
+
+function selectRoad(idx, e) {
+  e.preventDefault();
+  const dropdown = document.getElementById("road-dropdown");
+  if (!dropdown._matches) return;
+  const road = dropdown._matches[idx];
+  document.getElementById("road-search-input").value = road.name;
+  selectedRoadName = null; // clear previous before activating new
+  activateRoad(road);
+  closeDropdown();
+}
+
+// ── Activate a road: dim others, highlight selected, fit to visible segments ──
+function activateRoad(road) {
+  selectedRoadName = road.name;
+
+  // Collect latlngs only from rows that are currently visible
+  // (active ward AND active status) — so zoom matches what's on screen
+  const fitPts = [];
+  road.rows.forEach(row => {
+    const ward = (row.Ward || "Unknown").trim();
+    if (!activeWards.has(ward)) return;
+    if (!activeStatus.has(statusKey(row.Status))) return;
+    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => fitPts.push(pt)));
+    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+    if (!isNaN(lat) && !isNaN(lon)) fitPts.push([lat, lon]);
+  });
+
+  // Fall back to any active-ward points, then all points
+  const fallbackPts = [];
+  if (fitPts.length === 0) {
+    road.rows.forEach(row => {
+      const ward = (row.Ward || "Unknown").trim();
+      if (!activeWards.has(ward)) return;
+      parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => fallbackPts.push(pt)));
+      const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+      if (!isNaN(lat) && !isNaN(lon)) fallbackPts.push([lat, lon]);
+    });
+  }
+
+  const pts = fitPts.length > 0 ? fitPts : (fallbackPts.length > 0 ? fallbackPts : road.allLatLngs);
+  if (pts.length > 0) {
+    map.fitBounds(L.latLngBounds(pts).pad(0.1), { maxZoom: 17 });
+  }
+
+  renderLines();
+}
+
+// ── Clear selection ───────────────────────────────────────────────────────────
+function clearSelection() {
+  if (!selectedRoadName) return;
+  selectedRoadName = null;
+  renderLines();
+}
+
+function closeDropdown() {
+  const dropdown = document.getElementById("road-dropdown");
+  dropdown.classList.remove("open");
+  dropdownFocusIdx = -1;
+}
+
+function clearRoadSearch() {
+  document.getElementById("road-search-input").value = "";
+  document.getElementById("road-search-clear").style.display = "none";
+  clearSelection();
+  closeDropdown();
+}
+
+// Clear selection when user clicks on the map (but not on a popup or sidebar)
+map.on("click", () => clearSelection());
+
+// Close dropdown when clicking elsewhere
+document.addEventListener("click", e => {
+  if (!e.target.closest(".road-search-wrap")) closeDropdown();
+});
+
+// ── Auth & Edit ───────────────────────────────────────────────────────────────
+//
+// Flow:
+//  1. User clicks the status badge in a popup → popupEditClicked()
+//  2. If token is fresh and authorised → show status picker immediately
+//  3. If no token / expired → trigger Google One Tap / sign-in popup
+//  4. On sign-in → verifyWithBackend() sends token to Apps Script
+//  5. Apps Script checks allowlist → returns {ok, authorised, email}
+//  6. If authorised → show status picker
+//  7. User picks new status → submitStatusChange() → Apps Script writes cell
+//  8. On success → update local data + re-render
+
+// Pending edit request waiting for sign-in to complete
+let pendingEdit = null;
+
+function tokenIsValid() {
+  return authToken && Date.now() < authExpiry - 30_000;
+}
+
+// ── Step 1: status badge clicked ─────────────────────────────────────────────
+function popupEditClicked(btn, rowRefEncoded) {
+  const rowRef = JSON.parse(decodeURIComponent(rowRefEncoded));
+  const editDiv = document.getElementById("edit-" + rowRef.rowIdx);
+  if (!editDiv) return;
+
+  // Toggle: if already open, close it
+  if (editDiv.style.display !== "none") {
+    editDiv.style.display = "none";
+    return;
+  }
+  editDiv.style.display = "block";
+
+  if (tokenIsValid() && authAuthorised) {
+    showStatusPicker(editDiv, rowRef);
+  } else if (tokenIsValid() && !authAuthorised) {
+    showEditMsg(editDiv, "Your account is not on the authorised list.", "error");
+  } else {
+    pendingEdit = { editDiv, rowRef };
+    showSignInPrompt(editDiv);
+  }
+}
+
+// ── Show sign-in prompt ───────────────────────────────────────────────────────
+function showSignInPrompt(editDiv) {
+  editDiv.innerHTML = `
+    <div class="popup-auth-msg">Sign in with Google to edit — your account will be checked against the authorised list.</div>
+    <button class="popup-signin-btn" onclick="triggerSignIn()">
+      <svg width="16" height="16" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 6.293C4.672 4.166 6.656 3.58 9 3.58z"/></svg>
+      Sign in with Google
+    </button>
+  `;
+}
+
+// ── Trigger Google Identity Services sign-in ──────────────────────────────────
+function triggerSignIn() {
+  if (typeof google === "undefined" || !google.accounts) {
+    showEditMsg(pendingEdit?.editDiv, "Google Sign-In library not loaded yet. Try again in a moment.", "error");
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: onGoogleSignIn,
+    auto_select: true,          // silently re-uses an existing session if available
+    cancel_on_tap_outside: false
+  });
+  google.accounts.id.prompt(notification => {
+    // If One Tap is suppressed (e.g. user dismissed before), fall back to popup
+    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+      google.accounts.id.renderButton(
+        document.createElement("div"), // throwaway container
+        { theme: "outline", size: "large" }
+      );
+      // Force popup flow
+      const fakeDiv = document.createElement("div");
+      fakeDiv.style.display = "none";
+      document.body.appendChild(fakeDiv);
+      google.accounts.id.renderButton(fakeDiv, {
+        type: "standard", theme: "outline", size: "large"
+      });
+      // Use the accounts OAuth2 popup directly as fallback
+      useOAuthPopupFallback();
+    }
+  });
+}
+
+// ── OAuth popup fallback (for when One Tap is suppressed) ────────────────────
+function useOAuthPopupFallback() {
+  const tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: "openid email profile",
+    callback: async (tokenResponse) => {
+      if (tokenResponse.error) {
+        if (pendingEdit) showEditMsg(pendingEdit.editDiv, "Sign-in failed: " + tokenResponse.error, "error");
+        return;
+      }
+      // Exchange access token for ID token via userinfo endpoint
+      try {
+        const resp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: "Bearer " + tokenResponse.access_token }
+        });
+        const info = await resp.json();
+        // Synthesise a credential-like object for our handler
+        await processSignIn(null, info.email, tokenResponse.access_token, info.sub);
+      } catch(e) {
+        if (pendingEdit) showEditMsg(pendingEdit.editDiv, "Sign-in error: " + e.message, "error");
+      }
+    }
+  });
+  tokenClient.requestAccessToken({ prompt: "select_account" });
+}
+
+// ── GIS One Tap callback ──────────────────────────────────────────────────────
+async function onGoogleSignIn(response) {
+  // response.credential is the ID token JWT
+  await processSignIn(response.credential, null, null, null);
+}
+
+// ── Send token/info to Apps Script for verification ───────────────────────────
+async function processSignIn(idToken, emailHint, accessToken, sub) {
+  const editDiv = pendingEdit?.editDiv;
+  if (editDiv) showEditMsg(editDiv, "Checking authorisation…", "");
+
+  try {
+    const payload = idToken
+      ? { action: "verify", idToken }
+      : { action: "verify", accessToken, email: emailHint, sub };
+
+    const resp = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+
+    if (!data.ok) {
+      if (editDiv) showEditMsg(editDiv, data.error || "Verification failed.", "error");
       return;
     }
 
-    // Build ward index
-    allRoads.forEach(r => {
-      const w = (r.Ward || "Unknown").trim();
-      wardCounts[w] = (wardCounts[w] || 0) + 1;
-    });
+    // Store auth state
+    authToken      = idToken || accessToken;
+    authEmail      = data.email || emailHint;
+    authExpiry     = Date.now() + 55 * 60 * 1000; // ~55 min (tokens last 60)
+    authAuthorised = data.authorised === true;
 
-    // Create a layer group per ward and add to map
-    Object.keys(wardCounts).forEach(w => {
-      layerGroups[w] = L.layerGroup().addTo(map);
-      activeWards.add(w);
-    });
+    if (!authAuthorised) {
+      if (editDiv) showEditMsg(editDiv, `${authEmail} is not on the authorised list.`, "error");
+      return;
+    }
 
-    buildWardList();
-    updateCountBadges();
+    // Success — show the status picker for the pending edit
+    if (pendingEdit) {
+      showStatusPicker(pendingEdit.editDiv, pendingEdit.rowRef);
+      pendingEdit = null;
+    }
+  } catch(e) {
+    if (editDiv) showEditMsg(editDiv, "Network error: " + e.message, "error");
+  }
+}
+
+// ── Show status picker ────────────────────────────────────────────────────────
+function showStatusPicker(editDiv, rowRef) {
+  const row = allRoads.find(r => r._rowIdx === rowRef.rowIdx);
+  const current = statusKey(row?.Status || "");
+
+  const opts = [
+    { key: "complete",    label: "Complete",    cls: "opt-complete" },
+    { key: "in progress", label: "In Progress", cls: "opt-progress" },
+    { key: "not started", label: "Not Started", cls: "opt-notstarted" }
+  ];
+
+  editDiv.innerHTML = `
+    <div class="popup-user-line">
+      <span>✓ ${escHtml(authEmail)}</span>
+      <button class="popup-signout-link" onclick="signOut()">sign out</button>
+    </div>
+    <div class="popup-status-select">
+      ${opts.map(o => `
+        <button class="popup-status-option ${o.cls}${o.key === current ? " current" : ""}"
+          onclick="submitStatusChange(${rowRef.rowIdx}, '${o.label}', this)">
+          ${o.label}${o.key === current ? " ✓" : ""}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+// ── Submit the status change to Apps Script ───────────────────────────────────
+async function submitStatusChange(rowIdx, newStatus, btn) {
+  const editDiv = btn.closest(".popup-edit-area");
+  editDiv.innerHTML = `<div class="popup-saving">Saving…</div>`;
+
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action:    "update",
+        idToken:   authToken,
+        rowIndex:  rowIdx,
+        newStatus: newStatus
+      })
+    });
+    const data = await resp.json();
+
+    if (!data.ok) {
+      showEditMsg(editDiv, data.error || "Save failed.", "error");
+      return;
+    }
+
+    // Update local data immediately so the map re-renders without a full reload
+    const row = allRoads.find(r => r._rowIdx === rowIdx);
+    if (row) row.Status = newStatus;
     renderLines();
     updateStats();
+    updateCountBadges();
 
-    // Fit map to rendered lines
-    const allLatLngs = allRoads
-      .filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
-      .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
-    if (allLatLngs.length > 0) map.fitBounds(L.latLngBounds(allLatLngs).pad(0.05));
-  },
-  error(err) {
-    document.getElementById("loading").classList.add("hidden");
-    showError(`Failed to load sheet: ${err.message}. Is the Google Sheet published publicly?`);
+    showEditMsg(editDiv, `Saved as "${newStatus}"`, "success");
+    // Auto-close edit area after a moment
+    setTimeout(() => { if (editDiv) editDiv.style.display = "none"; }, 1800);
+
+  } catch(e) {
+    showEditMsg(editDiv, "Network error: " + e.message, "error");
   }
-});
+}
+
+// ── Sign out ──────────────────────────────────────────────────────────────────
+function signOut() {
+  authToken = null; authEmail = null; authExpiry = 0; authAuthorised = false;
+  if (typeof google !== "undefined" && google.accounts) {
+    google.accounts.id.disableAutoSelect();
+  }
+  // Close any open edit areas
+  document.querySelectorAll(".popup-edit-area").forEach(el => el.style.display = "none");
+}
+
+// ── Helper: show a message in an edit area ────────────────────────────────────
+function showEditMsg(editDiv, msg, type) {
+  if (!editDiv) return;
+  editDiv.innerHTML = `<div class="popup-auth-msg ${type}">${escHtml(msg)}</div>`;
+}
+
+// ── Initial load ──────────────────────────────────────────────────────────────
+checkForUpdates(false);
 </script>
 </body>
 </html>
