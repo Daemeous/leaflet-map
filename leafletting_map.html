@@ -553,10 +553,11 @@ let activeStatus = new Set(["complete","in progress","not started"]);
 let activeWards  = new Set();
 let wardCounts   = {};
 
-let lastChecksum       = null;   // checksum value from last full load
-let lastLoadTime       = null;   // Date of last full sheet load
+let lastChecksum       = null;
+let lastLoadTime       = null;
 let pollTimer          = null;
 let isChecking         = false;
+let selectedRoadName   = null;   // street name currently highlighted via search
 
 // ── Sync UI helpers ───────────────────────────────────────────────────────────
 function setSyncState(state, text) {
