@@ -258,11 +258,17 @@
     font-size: 12px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
     transition: background 0.1s;
+    background: rgba(79,142,247,0.07);
+  }
+  .road-option.out-of-ward {
+    background: rgba(0,0,0,0.35);
   }
   .road-option:last-child { border-bottom: none; }
-  .road-option:hover, .road-option.focused { background: rgba(79,142,247,0.12); color: var(--text); }
+  .road-option:hover, .road-option.focused { background: rgba(79,142,247,0.22) !important; color: var(--text); }
   .road-option-name { font-weight: 500; color: var(--text); }
-  .road-option-meta { font-size: 10px; color: var(--muted); margin-top: 1px; font-family: 'DM Mono', monospace; }
+  .road-option-meta { font-size: 10px; margin-top: 1px; font-family: 'DM Mono', monospace; }
+  .road-option-ward-in  { color: #7ab8f5; }
+  .road-option-ward-out { color: var(--muted); opacity: 0.65; }
   .road-no-results {
     padding: 10px 12px;
     font-size: 12px;
@@ -811,11 +817,10 @@ function manualRefresh() {
 }
 
 // ── Road Search ───────────────────────────────────────────────────────────────
-// Roads can span multiple wards, so we group all rows sharing the same Street
-// name and fit bounds across ALL of them when one is selected.
 
-let roadSearchIndex = [];   // [{name, wards, allLatLngs, rows}]
+let roadSearchIndex  = [];  // [{name, wards:Set, allLatLngs, rows}]
 let dropdownFocusIdx = -1;
+let selectionGroup   = null; // L.LayerGroup holding highlight rect + popups
 
 function buildRoadSearchIndex() {
   const map_ = {};
@@ -826,13 +831,37 @@ function buildRoadSearchIndex() {
     if (!map_[key]) map_[key] = { name, wards: new Set(), allLatLngs: [], rows: [] };
     map_[key].wards.add((row.Ward || "Unknown").trim());
     map_[key].rows.push(row);
-    // Collect lat/lon fallbacks
     const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
     if (!isNaN(lat) && !isNaN(lon)) map_[key].allLatLngs.push([lat, lon]);
-    // Also harvest points from WKT geometry
     parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => map_[key].allLatLngs.push(pt)));
   });
-  roadSearchIndex = Object.values(map_).sort((a,b) => a.name.localeCompare(b.name));
+  roadSearchIndex = Object.values(map_).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Returns true if the road has any rows in currently active wards
+function roadInActiveWards(road) {
+  return road.rows.some(r => activeWards.has((r.Ward || "Unknown").trim()));
+}
+
+// Collect latlngs only from rows whose ward is currently active
+function visibleLatLngsForRoad(road) {
+  const pts = [];
+  road.rows.forEach(row => {
+    const ward = (row.Ward || "Unknown").trim();
+    if (!activeWards.has(ward)) return;
+    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+    if (!isNaN(lat) && !isNaN(lon)) pts.push([lat, lon]);
+    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => pts.push(pt)));
+  });
+  return pts;
+}
+
+// Midpoint of a latlng array (simple mean)
+function midpoint(latlngs) {
+  if (!latlngs.length) return null;
+  const lat = latlngs.reduce((s, p) => s + p[0], 0) / latlngs.length;
+  const lon = latlngs.reduce((s, p) => s + p[1], 0) / latlngs.length;
+  return [lat, lon];
 }
 
 function onRoadSearchInput(val) {
@@ -841,19 +870,30 @@ function onRoadSearchInput(val) {
   clearBtn.style.display = val ? "block" : "none";
   dropdownFocusIdx = -1;
   if (!val.trim()) { dropdown.classList.remove("open"); return; }
+
   const q = val.trim().toLowerCase();
-  const matches = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q)).slice(0, 40);
+  const all = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q));
+
+  // Sort: roads in active wards first, then alphabetically within each group
+  const inWard  = all.filter(r =>  roadInActiveWards(r));
+  const outWard = all.filter(r => !roadInActiveWards(r));
+  const matches = [...inWard, ...outWard].slice(0, 40);
+
   if (matches.length === 0) {
     dropdown.innerHTML = `<div class="road-no-results">No roads found</div>`;
+    dropdown._matches = [];
   } else {
     dropdown.innerHTML = matches.map((r, i) => {
-      const wardList = [...r.wards].sort().join(", ");
-      return `<div class="road-option" data-idx="${i}" onmousedown="selectRoad(${i}, event)">
+      const inActive = roadInActiveWards(r);
+      const wardHtml = [...r.wards].sort().map(w => {
+        const cls = activeWards.has(w) ? "road-option-ward-in" : "road-option-ward-out";
+        return `<span class="${cls}">${escHtml(w)}</span>`;
+      }).join('<span style="color:var(--border)"> · </span>');
+      return `<div class="road-option${inActive ? "" : " out-of-ward"}" data-idx="${i}" onmousedown="selectRoad(${i}, event)">
         <div class="road-option-name">${escHtml(r.name)}</div>
-        <div class="road-option-meta">${escHtml(wardList)}</div>
+        <div class="road-option-meta">${wardHtml}</div>
       </div>`;
     }).join("");
-    // stash current matches for keyboard nav
     dropdown._matches = matches;
   }
   dropdown.classList.add("open");
@@ -873,11 +913,12 @@ function onRoadSearchKey(e) {
     updateDropdownFocus(options);
   } else if (e.key === "Enter") {
     e.preventDefault();
-    if (dropdownFocusIdx >= 0 && dropdown._matches) {
-      flyToRoad(dropdown._matches[dropdownFocusIdx]);
+    if (dropdownFocusIdx >= 0 && dropdown._matches && dropdown._matches[dropdownFocusIdx]) {
+      activateRoad(dropdown._matches[dropdownFocusIdx]);
       closeDropdown();
     }
   } else if (e.key === "Escape") {
+    clearSelection();
     closeDropdown();
   }
 }
@@ -888,19 +929,69 @@ function updateDropdownFocus(options) {
 }
 
 function selectRoad(idx, e) {
-  e.preventDefault(); // prevent blur before we act
+  e.preventDefault();
   const dropdown = document.getElementById("road-dropdown");
   if (!dropdown._matches) return;
   const road = dropdown._matches[idx];
   document.getElementById("road-search-input").value = road.name;
-  flyToRoad(road);
+  activateRoad(road);
   closeDropdown();
 }
 
-function flyToRoad(road) {
-  if (road.allLatLngs.length === 0) return;
-  const bounds = L.latLngBounds(road.allLatLngs).pad(0.08);
+// ── Activate a road: fly to visible segments, draw highlight, open popups ────
+function activateRoad(road) {
+  clearSelection(); // remove previous highlight
+
+  // Decide which latlngs to use for fitting bounds:
+  // prefer currently-visible (active ward) segments; fall back to all.
+  const visiblePts = visibleLatLngsForRoad(road);
+  const fitPts     = visiblePts.length > 0 ? visiblePts : road.allLatLngs;
+  if (fitPts.length === 0) return;
+
+  const bounds = L.latLngBounds(fitPts).pad(0.08);
   map.fitBounds(bounds, { maxZoom: 17 });
+
+  selectionGroup = L.layerGroup().addTo(map);
+
+  // Cyan bounding-box rectangle
+  L.rectangle(bounds, {
+    color: "#00e5ff",
+    weight: 2,
+    opacity: 0.85,
+    fillColor: "#00e5ff",
+    fillOpacity: 0.04,
+    dashArray: "6 4",
+    interactive: false
+  }).addTo(selectionGroup);
+
+  // One popup per visible row (each segment/ward combo), opened at segment midpoint
+  const visibleRows = road.rows.filter(row =>
+    activeWards.has((row.Ward || "Unknown").trim()) &&
+    activeStatus.has(statusKey(row.Status))
+  );
+
+  visibleRows.forEach(row => {
+    // Gather this row's geometry points to find midpoint
+    const rowPts = [];
+    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => rowPts.push(pt)));
+    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
+    if (!isNaN(lat) && !isNaN(lon)) rowPts.push([lat, lon]);
+    const mid = midpoint(rowPts);
+    if (!mid) return;
+
+    L.popup({ closeButton: true, autoClose: false, closeOnClick: false })
+      .setLatLng(mid)
+      .setContent(popupHtml(row))
+      .addTo(selectionGroup);
+  });
+}
+
+// ── Clear selection highlight and popups ─────────────────────────────────────
+function clearSelection() {
+  if (selectionGroup) {
+    map.removeLayer(selectionGroup);
+    selectionGroup = null;
+  }
 }
 
 function closeDropdown() {
@@ -912,8 +1003,12 @@ function closeDropdown() {
 function clearRoadSearch() {
   document.getElementById("road-search-input").value = "";
   document.getElementById("road-search-clear").style.display = "none";
+  clearSelection();
   closeDropdown();
 }
+
+// Clear selection when user clicks on the map (but not on a popup or sidebar)
+map.on("click", () => clearSelection());
 
 // Close dropdown when clicking elsewhere
 document.addEventListener("click", e => {
@@ -921,7 +1016,7 @@ document.addEventListener("click", e => {
 });
 
 function escHtml(s) {
-  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ── Initial load ──────────────────────────────────────────────────────────────
