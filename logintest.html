@@ -615,7 +615,7 @@
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSF6ppshV-wUUrhR03qNeS-40LM14wE0DN0vAkG4T0CVmGmiADevOsaMGIIeJ0DC97MlqXOlSNjCBn9/pub?gid=0&single=true&output=csv";
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&single=true&output=csv";
 const CORS_PROXY    = "https://corsproxy.io/?url=";
 
 // Checksum cell: A2849 — a formula in your sheet that reads from the Status column
@@ -623,7 +623,7 @@ const CORS_PROXY    = "https://corsproxy.io/?url=";
 // The CSV range URL fetches just that single cell cheaply.
 // NOTE: do NOT include single=true here — it overrides the range parameter.
 // This URL fetches only the A2849 cell as a tiny one-cell CSV.
-const CHECKSUM_RANGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&single=true&output=csv";
+const CHECKSUM_RANGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&output=csv&range=H2";
 
 // How often to poll for checksum changes (15 minutes)
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
