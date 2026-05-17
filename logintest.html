@@ -618,23 +618,13 @@
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&single=true&output=csv";
 const CORS_PROXY    = "https://corsproxy.io/?url=";
 
-// Checksum cell: A2849 — a formula in your sheet that reads from the Status column
-// e.g. =COUNTA(S2:S2848)&"|"&COUNTIF(S2:S2848,"Complete")&"|"&COUNTIF(S2:S2848,"In Progress")
-// The CSV range URL fetches just that single cell cheaply.
-// NOTE: do NOT include single=true here — it overrides the range parameter.
-// This URL fetches only the A2849 cell as a tiny one-cell CSV.
 const CHECKSUM_RANGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&output=csv&range=H2";
 
 // How often to poll for checksum changes (15 minutes)
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 // ── AUTH / EDIT CONFIG — fill these in ───────────────────────────────────────
-// 1. Google OAuth client ID (safe to be public — not a secret)
-//    Create one at console.cloud.google.com → APIs & Services → Credentials
-//    Add your page's origin to "Authorised JavaScript origins"
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
-
-// 2. Your Apps Script Web App URL (deployed as "Anyone can access")
 const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -666,22 +656,23 @@ let lastChecksum       = null;
 let lastLoadTime       = null;
 let pollTimer          = null;
 let isChecking         = false;
-let selectedRoadName   = null;   // street name currently highlighted via search
+let selectedRoadName   = null;
 
 // ── Auth state ────────────────────────────────────────────────────────────────
-let authToken     = null;   // Google ID token (JWT), refreshed as needed
-let authEmail     = null;   // signed-in email for display
-let authExpiry    = 0;      // token expiry (epoch ms) — GIS tokens last 1 hour
-let authAuthorised = false; // confirmed against Apps Script allowlist
+let authToken      = null;
+let authTokenType  = "idToken";  // FIX: track whether token is idToken or accessToken
+let authEmail      = null;
+let authExpiry     = 0;
+let authAuthorised = false;
 
 // ── Sync UI helpers ───────────────────────────────────────────────────────────
 function setSyncState(state, text) {
   const dot  = document.getElementById("sync-dot");
   const txt  = document.getElementById("sync-text");
   const icon = document.getElementById("sync-icon");
-  dot.className = ""; // reset
+  dot.className = "";
   icon.classList.remove("spinning");
-  dot.classList.add(state); // fresh | stale | error | checking
+  dot.classList.add(state);
   txt.textContent = text;
   if (state === "checking") icon.classList.add("spinning");
 }
@@ -706,13 +697,10 @@ function parseWKT(wkt) {
 }
 
 // ── Popup HTML ────────────────────────────────────────────────────────────────
-// rowIdx is the 1-based sheet row number (data starts at row 2, so index in
-// allRoads array + 2). We store it on the row object when data loads.
 function popupHtml(row) {
   const sk  = statusKey(row.Status);
   const cls = sk === "complete" ? "ps-complete" : sk === "in progress" ? "ps-progress" : "ps-notstarted";
   const label = row.Status || "Not started";
-  // Encode row reference safely for the inline onclick
   const rowRef = encodeURIComponent(JSON.stringify({ rowIdx: row._rowIdx, street: row.Street, ward: row.Ward }));
   return `
     <div class="popup-street">${escHtml(row.Street)}</div>
@@ -729,8 +717,6 @@ function escHtml(s) {
 }
 
 // ── Render lines ──────────────────────────────────────────────────────────────
-// When a road is selected via search, all other roads are dimmed and the
-// selected road's segments are redrawn on top with a glow underline.
 function renderLines() {
   Object.values(layerGroups).forEach(g => g.clearLayers());
 
@@ -748,20 +734,17 @@ function renderLines() {
     const weight  = STATUS_WEIGHT[sk] || 3;
     const isSelected = hasSelection && (road.Street || "").trim().toLowerCase() === selKey;
 
-    // Dim non-selected roads when something is selected
     const opacity = hasSelection && !isSelected ? 0.15 : 0.85;
 
     if (segs.length > 0) {
       segs.forEach(latlngs => {
         if (isSelected) {
-          // Glow layer underneath (wider, semi-transparent white)
           L.polyline(latlngs, {
             color: "#ffffff",
             weight: weight + 6,
             opacity: 0.25,
             interactive: false
           }).addTo(layerGroups[ward]);
-          // Bright colour layer on top
           L.polyline(latlngs, {
             color: colour,
             weight: weight + 2,
@@ -873,12 +856,9 @@ function loadFullSheet(checksum) {
           return;
         }
 
-        // Preserve active ward selections across reloads
         const prevActiveWards = new Set(activeWards);
 
-        // Reset state
         allRoads = rows;
-        // Tag each row with its 1-based sheet row index (header = row 1, data from row 2)
         allRoads.forEach((r, i) => { r._rowIdx = i + 2; });
         Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
         layerGroups = {};
@@ -892,7 +872,6 @@ function loadFullSheet(checksum) {
 
         Object.keys(wardCounts).forEach(w => {
           layerGroups[w] = L.layerGroup().addTo(map);
-          // Restore prior selection, or select all if first load
           if (prevActiveWards.size === 0 || prevActiveWards.has(w)) activeWards.add(w);
         });
 
@@ -902,7 +881,6 @@ function loadFullSheet(checksum) {
         updateStats();
         buildRoadSearchIndex();
 
-        // Fit bounds only on first load
         if (!lastLoadTime) {
           const pts = allRoads
             .filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
@@ -924,16 +902,11 @@ function loadFullSheet(checksum) {
 }
 
 // ── Checksum fetch ────────────────────────────────────────────────────────────
-// Fetches just cell A2849 — a tiny single-cell CSV — to see if data changed.
-// Put a formula like this in A2849 of your sheet:
-//   =COUNTIF(S2:S2848,"Complete")&"|"&COUNTIF(S2:S2848,"In Progress")&"|"&COUNTA(S2:S2848)
-// This produces a string like "142|37|848" that changes whenever statuses change.
 async function fetchChecksum() {
   const url = CORS_PROXY + encodeURIComponent(CHECKSUM_RANGE_URL + "&cachebust=" + Date.now());
   const resp = await fetch(url);
   if (!resp.ok) throw new Error("HTTP " + resp.status);
   const text = await resp.text();
-  // PapaParse the tiny CSV to grab the first cell value
   const parsed = Papa.parse(text.trim(), { header: false });
   return (parsed.data[0]?.[0] || "").trim();
 }
@@ -948,14 +921,11 @@ async function checkForUpdates(isManual = false) {
     const checksum = await fetchChecksum();
 
     if (checksum === "") {
-      // A2849 is blank — formula not set up yet; fall back to always loading
-      console.warn("Checksum cell A2849 is empty. Add a formula there for smart refresh. Reloading anyway.");
+      console.warn("Checksum cell is empty. Reloading anyway.");
       await loadFullSheet(null);
     } else if (checksum !== lastChecksum) {
-      // Data changed (or first load) — fetch full sheet
       await loadFullSheet(checksum);
     } else {
-      // No change
       lastLoadTime = lastLoadTime || new Date();
       setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
     }
@@ -975,15 +945,14 @@ function schedulePoll() {
   pollTimer = setTimeout(() => checkForUpdates(false), POLL_INTERVAL_MS);
 }
 
-// ── Manual refresh (clicking stats or sync bar) ───────────────────────────────
+// ── Manual refresh ────────────────────────────────────────────────────────────
 function manualRefresh() {
   clearTimeout(pollTimer);
   checkForUpdates(true);
 }
 
 // ── Road Search ───────────────────────────────────────────────────────────────
-
-let roadSearchIndex  = [];  // [{name, wards:Set, allLatLngs, rows}]
+let roadSearchIndex  = [];
 let dropdownFocusIdx = -1;
 
 function buildRoadSearchIndex() {
@@ -1002,7 +971,6 @@ function buildRoadSearchIndex() {
   roadSearchIndex = Object.values(map_).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Returns true if the road has any rows in currently active wards
 function roadInActiveWards(road) {
   return road.rows.some(r => activeWards.has((r.Ward || "Unknown").trim()));
 }
@@ -1017,7 +985,6 @@ function onRoadSearchInput(val) {
   const q = val.trim().toLowerCase();
   const all = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q));
 
-  // Sort: roads in active wards first, then alphabetically within each group
   const inWard  = all.filter(r =>  roadInActiveWards(r));
   const outWard = all.filter(r => !roadInActiveWards(r));
   const matches = [...inWard, ...outWard].slice(0, 40);
@@ -1057,7 +1024,7 @@ function onRoadSearchKey(e) {
   } else if (e.key === "Enter") {
     e.preventDefault();
     if (dropdownFocusIdx >= 0 && dropdown._matches && dropdown._matches[dropdownFocusIdx]) {
-      selectedRoadName = null; // clear previous before activating new
+      selectedRoadName = null;
       activateRoad(dropdown._matches[dropdownFocusIdx]);
       closeDropdown();
     }
@@ -1078,17 +1045,14 @@ function selectRoad(idx, e) {
   if (!dropdown._matches) return;
   const road = dropdown._matches[idx];
   document.getElementById("road-search-input").value = road.name;
-  selectedRoadName = null; // clear previous before activating new
+  selectedRoadName = null;
   activateRoad(road);
   closeDropdown();
 }
 
-// ── Activate a road: dim others, highlight selected, fit to visible segments ──
 function activateRoad(road) {
   selectedRoadName = road.name;
 
-  // Collect latlngs only from rows that are currently visible
-  // (active ward AND active status) — so zoom matches what's on screen
   const fitPts = [];
   road.rows.forEach(row => {
     const ward = (row.Ward || "Unknown").trim();
@@ -1099,7 +1063,6 @@ function activateRoad(road) {
     if (!isNaN(lat) && !isNaN(lon)) fitPts.push([lat, lon]);
   });
 
-  // Fall back to any active-ward points, then all points
   const fallbackPts = [];
   if (fitPts.length === 0) {
     road.rows.forEach(row => {
@@ -1119,7 +1082,6 @@ function activateRoad(road) {
   renderLines();
 }
 
-// ── Clear selection ───────────────────────────────────────────────────────────
 function clearSelection() {
   if (!selectedRoadName) return;
   selectedRoadName = null;
@@ -1139,40 +1101,25 @@ function clearRoadSearch() {
   closeDropdown();
 }
 
-// Clear selection when user clicks on the map (but not on a popup or sidebar)
 map.on("click", () => clearSelection());
 
-// Close dropdown when clicking elsewhere
 document.addEventListener("click", e => {
   if (!e.target.closest(".road-search-wrap")) closeDropdown();
 });
 
 // ── Auth & Edit ───────────────────────────────────────────────────────────────
-//
-// Flow:
-//  1. User clicks the status badge in a popup → popupEditClicked()
-//  2. If token is fresh and authorised → show status picker immediately
-//  3. If no token / expired → trigger Google One Tap / sign-in popup
-//  4. On sign-in → verifyWithBackend() sends token to Apps Script
-//  5. Apps Script checks allowlist → returns {ok, authorised, email}
-//  6. If authorised → show status picker
-//  7. User picks new status → submitStatusChange() → Apps Script writes cell
-//  8. On success → update local data + re-render
-
-// Pending edit request waiting for sign-in to complete
 let pendingEdit = null;
 
 function tokenIsValid() {
   return authToken && Date.now() < authExpiry - 30_000;
 }
 
-// ── Step 1: status badge clicked ─────────────────────────────────────────────
+// ── Step 1: status badge clicked ──────────────────────────────────────────────
 function popupEditClicked(btn, rowRefEncoded) {
   const rowRef = JSON.parse(decodeURIComponent(rowRefEncoded));
   const editDiv = document.getElementById("edit-" + rowRef.rowIdx);
   if (!editDiv) return;
 
-  // Toggle: if already open, close it
   if (editDiv.style.display !== "none") {
     editDiv.style.display = "none";
     return;
@@ -1209,30 +1156,17 @@ function triggerSignIn() {
   google.accounts.id.initialize({
     client_id: GOOGLE_CLIENT_ID,
     callback: onGoogleSignIn,
-    auto_select: true,          // silently re-uses an existing session if available
+    auto_select: true,
     cancel_on_tap_outside: false
   });
   google.accounts.id.prompt(notification => {
-    // If One Tap is suppressed (e.g. user dismissed before), fall back to popup
     if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-      google.accounts.id.renderButton(
-        document.createElement("div"), // throwaway container
-        { theme: "outline", size: "large" }
-      );
-      // Force popup flow
-      const fakeDiv = document.createElement("div");
-      fakeDiv.style.display = "none";
-      document.body.appendChild(fakeDiv);
-      google.accounts.id.renderButton(fakeDiv, {
-        type: "standard", theme: "outline", size: "large"
-      });
-      // Use the accounts OAuth2 popup directly as fallback
       useOAuthPopupFallback();
     }
   });
 }
 
-// ── OAuth popup fallback (for when One Tap is suppressed) ────────────────────
+// ── OAuth popup fallback ──────────────────────────────────────────────────────
 function useOAuthPopupFallback() {
   const tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
@@ -1242,13 +1176,12 @@ function useOAuthPopupFallback() {
         if (pendingEdit) showEditMsg(pendingEdit.editDiv, "Sign-in failed: " + tokenResponse.error, "error");
         return;
       }
-      // Exchange access token for ID token via userinfo endpoint
       try {
         const resp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: { Authorization: "Bearer " + tokenResponse.access_token }
         });
         const info = await resp.json();
-        // Synthesise a credential-like object for our handler
+        // FIX: pass accessToken through so processSignIn stores the token type correctly
         await processSignIn(null, info.email, tokenResponse.access_token, info.sub);
       } catch(e) {
         if (pendingEdit) showEditMsg(pendingEdit.editDiv, "Sign-in error: " + e.message, "error");
@@ -1260,15 +1193,12 @@ function useOAuthPopupFallback() {
 
 // ── GIS One Tap callback ──────────────────────────────────────────────────────
 async function onGoogleSignIn(response) {
-  // response.credential is the ID token JWT
   await processSignIn(response.credential, null, null, null);
 }
 
-// ── Send token/info to Apps Script for verification ───────────────────────────
+// ── Send token to Apps Script for verification ────────────────────────────────
 async function processSignIn(idToken, emailHint, accessToken, sub) {
   const editDiv = pendingEdit?.editDiv;
-  authTokenType = idToken ? "idToken" : "accessToken";
-  authToken = idToken || accessToken;
   if (editDiv) showEditMsg(editDiv, "Checking authorisation…", "");
 
   try {
@@ -1287,10 +1217,11 @@ async function processSignIn(idToken, emailHint, accessToken, sub) {
       return;
     }
 
-    // Store auth state
+    // FIX: store which type of token we have so submitStatusChange sends it correctly
     authToken      = idToken || accessToken;
+    authTokenType  = idToken ? "idToken" : "accessToken";
     authEmail      = data.email || emailHint;
-    authExpiry     = Date.now() + 55 * 60 * 1000; // ~55 min (tokens last 60)
+    authExpiry     = Date.now() + 55 * 60 * 1000;
     authAuthorised = data.authorised === true;
 
     if (!authAuthorised) {
@@ -1298,7 +1229,6 @@ async function processSignIn(idToken, emailHint, accessToken, sub) {
       return;
     }
 
-    // Success — show the status picker for the pending edit
     if (pendingEdit) {
       showStatusPicker(pendingEdit.editDiv, pendingEdit.rowRef);
       pendingEdit = null;
@@ -1319,6 +1249,9 @@ function showStatusPicker(editDiv, rowRef) {
     { key: "not started", label: "Not Started", cls: "opt-notstarted" }
   ];
 
+  // FIX: use data attributes instead of inline onclick arguments so that
+  // status values containing spaces ("In Progress", "Not Started") are
+  // never mangled by the HTML parser when set via innerHTML.
   editDiv.innerHTML = `
     <div class="popup-user-line">
       <span>✓ ${escHtml(authEmail)}</span>
@@ -1335,7 +1268,7 @@ function showStatusPicker(editDiv, rowRef) {
     </div>
   `;
 
-  // Attach click handlers directly — no inline args, no HTML parsing issues
+  // Attach handlers via JS — no inline args, no HTML-parser interference
   editDiv.querySelectorAll(".popup-status-option:not(.current)").forEach(btn => {
     btn.addEventListener("click", function() {
       submitStatusChange(
@@ -1349,27 +1282,36 @@ function showStatusPicker(editDiv, rowRef) {
 
 // ── Submit the status change to Apps Script ───────────────────────────────────
 async function submitStatusChange(rowIdx, newStatus, btn) {
+  console.log("submitStatusChange:", { rowIdx, newStatus, authTokenType });
+
   const editDiv = btn.closest(".popup-edit-area");
   editDiv.innerHTML = `<div class="popup-saving">Saving…</div>`;
 
   try {
+    // FIX: send the token under the correct key (idToken or accessToken)
+    // depending on which flow the user authenticated with.
+    const tokenPayload = authTokenType === "idToken"
+      ? { idToken: authToken }
+      : { accessToken: authToken };
+
     const resp = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       body: JSON.stringify({
         action:    "update",
-        [authTokenType]:   authToken,
         rowIndex:  rowIdx,
-        newStatus: newStatus
+        newStatus: newStatus,
+        ...tokenPayload
       })
     });
     const data = await resp.json();
+    console.log("Apps Script response:", data);
 
     if (!data.ok) {
       showEditMsg(editDiv, data.error || "Save failed.", "error");
       return;
     }
 
-    // Update local data immediately so the map re-renders without a full reload
+    // Update local data so the map re-renders without a full reload
     const row = allRoads.find(r => r._rowIdx === rowIdx);
     if (row) row.Status = newStatus;
     renderLines();
@@ -1377,7 +1319,6 @@ async function submitStatusChange(rowIdx, newStatus, btn) {
     updateCountBadges();
 
     showEditMsg(editDiv, `Saved as "${newStatus}"`, "success");
-    // Auto-close edit area after a moment
     setTimeout(() => { if (editDiv) editDiv.style.display = "none"; }, 1800);
 
   } catch(e) {
@@ -1387,11 +1328,10 @@ async function submitStatusChange(rowIdx, newStatus, btn) {
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
 function signOut() {
-  authToken = null; authEmail = null; authExpiry = 0; authAuthorised = false;
+  authToken = null; authTokenType = "idToken"; authEmail = null; authExpiry = 0; authAuthorised = false;
   if (typeof google !== "undefined" && google.accounts) {
     google.accounts.id.disableAutoSelect();
   }
-  // Close any open edit areas
   document.querySelectorAll(".popup-edit-area").forEach(el => el.style.display = "none");
 }
 
