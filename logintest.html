@@ -1267,6 +1267,8 @@ async function onGoogleSignIn(response) {
 // ── Send token/info to Apps Script for verification ───────────────────────────
 async function processSignIn(idToken, emailHint, accessToken, sub) {
   const editDiv = pendingEdit?.editDiv;
+  authTokenType = idToken ? "idToken" : "accessToken";
+  authToken = idToken || accessToken;
   if (editDiv) showEditMsg(editDiv, "Checking authorisation…", "");
 
   try {
@@ -1343,7 +1345,7 @@ async function submitStatusChange(rowIdx, newStatus, btn) {
       method: "POST",
       body: JSON.stringify({
         action:    "update",
-        idToken:   authToken,
+        [authTokenType]:   authToken,
         rowIndex:  rowIdx,
         newStatus: newStatus
       })
