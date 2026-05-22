@@ -23,6 +23,7 @@
     --yellow:    #f5c842;
     --red:       #f75f5f;
     --blue:      #4f8ef7;
+    --purple:    #a78bfa;
     --panel-w:   310px;
   }
 
@@ -51,15 +52,24 @@
   #sync-icon.spinning { animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  #stats { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
-  .stat { flex: 1; padding: 10px 12px; text-align: center; border-right: 1px solid var(--border); }
+  /* Stats: 2 rows — top row 4 status stats, bottom row residences full-width */
+  #stats { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
+  #stats-top { display: flex; }
+  #stats-bottom { border-top: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stat { flex: 1; padding: 10px 8px; text-align: center; border-right: 1px solid var(--border); }
   .stat:last-child { border-right: none; }
-  .stat-num { font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 500; line-height: 1; }
-  .stat-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+  .stat-num { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; line-height: 1; }
+  .stat-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
   .stat-num.green  { color: var(--green); }
   .stat-num.yellow { color: var(--yellow); }
   .stat-num.blue   { color: var(--blue); }
   .stat-num.red    { color: var(--red); }
+  .stat-num.purple { color: var(--purple); }
+
+  /* Estimated Residences Served bottom bar */
+  .res-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .res-value { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; color: var(--purple); }
+  .res-sub   { font-size: 10px; color: var(--muted); }
 
   .sidebar-scroll { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
   .sidebar-scroll::-webkit-scrollbar { width: 4px; }
@@ -116,11 +126,9 @@
   .ward-chip.selected { background: rgba(79,142,247,0.12); border-color: rgba(79,142,247,0.35); color: var(--text); }
   .ward-chip-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ward-chip-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); flex-shrink: 0; }
-  /* Solo-select button per ward */
   .ward-solo-btn { flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, border-color 0.12s, color 0.12s; line-height: 1; padding: 0; font-family: 'DM Mono', monospace; }
   .ward-solo-btn:hover { background: rgba(79,142,247,0.25); border-color: var(--accent); color: var(--accent); }
   .ward-solo-btn:active { background: rgba(79,142,247,0.4); }
-  .ward-solo-btn[title]:hover::after { content: attr(title); position: absolute; left: 34px; background: var(--panel); border: 1px solid var(--border); color: var(--text); font-size: 10px; padding: 2px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none; z-index: 100; }
 
   #loading { position: absolute; inset: 0; background: rgba(15,17,23,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px); }
   #loading.hidden { display: none; }
@@ -136,13 +144,15 @@
   .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
   .leaflet-popup-tip { background: var(--panel); }
   .leaflet-popup-content { font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.6; margin: 12px 14px; }
-  .popup-street { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
-  .popup-ward { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .popup-street { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+  .popup-ward { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .popup-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
   .popup-status { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em; font-weight: 500; }
   .ps-complete   { background: rgba(62,207,110,0.15);  color: var(--green); }
   .ps-inprogress { background: rgba(245,200,66,0.15);  color: var(--yellow); }
   .ps-planned    { background: rgba(79,142,247,0.15);  color: var(--blue); }
   .ps-notstarted { background: rgba(247,95,95,0.15);   color: var(--red); }
+  .popup-residences { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--purple); background: rgba(167,139,250,0.1); border-radius: 20px; padding: 2px 10px; white-space: nowrap; }
 
   .popup-status-btn { cursor: pointer; border: none; background: none; padding: 0; font: inherit; display: inline-block; transition: filter 0.15s, transform 0.1s; }
   .popup-status-btn:hover { filter: brightness(1.3); transform: scale(1.04); }
@@ -174,7 +184,6 @@
     #sidebar-toggle { display: block; }
   }
 
-  /* ── Cookie banner ── */
   #cookie-banner {
     position: fixed; bottom: 0; left: 0; right: 0;
     background: var(--panel); border-top: 1px solid var(--border);
@@ -209,21 +218,30 @@
     </div>
 
     <div id="stats">
-      <div class="stat">
-        <div class="stat-num green"  id="stat-complete">0</div>
-        <div class="stat-label">Complete</div>
+      <div id="stats-top">
+        <div class="stat">
+          <div class="stat-num green"  id="stat-complete">0</div>
+          <div class="stat-label">Done</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num yellow" id="stat-inprogress">0</div>
+          <div class="stat-label">Active</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num blue"   id="stat-planned">0</div>
+          <div class="stat-label">Planned</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num red"    id="stat-notstarted">0</div>
+          <div class="stat-label">Pending</div>
+        </div>
       </div>
-      <div class="stat">
-        <div class="stat-num yellow" id="stat-inprogress">0</div>
-        <div class="stat-label">In Progress</div>
-      </div>
-      <div class="stat">
-        <div class="stat-num blue"   id="stat-planned">0</div>
-        <div class="stat-label">Planned</div>
-      </div>
-      <div class="stat">
-        <div class="stat-num red"    id="stat-notstarted">0</div>
-        <div class="stat-label">Not Started</div>
+      <div id="stats-bottom">
+        <span class="res-label">🏠 Estimated Residences Served</span>
+        <span>
+          <span class="res-value" id="stat-residences">0</span>
+          <span class="res-sub" id="stat-residences-pct"></span>
+        </span>
       </div>
     </div>
 
@@ -281,7 +299,6 @@
   </div>
 </div>
 
-<!-- Cookie consent banner -->
 <div id="cookie-banner" class="hidden">
   <p>
     This site can store a cookie to remember your Google sign-in between visits, saving you from having to log in each time.
@@ -297,30 +314,19 @@
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-// Public Google Sheets JSON endpoint — no CORS proxy needed, works on all
-// browsers including Safari / iOS WebKit with ITP enabled.
 const SHEET_ID  = "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q";
 const SHEET_GID = "2107159853";
-
-// Native Google Sheets published-CSV URL — Apple's ITP allows first-party
-// Google fetches and does NOT flag them as tracking. No proxy required.
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv`;
-
-// Checksum cell: we ask for only column H row 2 as CSV.
-// Same origin as the main sheet so no proxy needed.
-const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv&range=H2`;
-
+const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv&range=I2`;
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
-
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
 const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
 
-// localStorage keys
-const LS_DATA     = "leafmap_data_v1";   // cached road rows as JSON string
-const LS_CHECKSUM = "leafmap_checksum";  // last-known checksum
-const LS_TIME     = "leafmap_time";      // ISO timestamp of last successful load
-const LS_AUTH     = "leafmap_auth_v1";   // serialised auth session (if cookie consent given)
-const LS_COOKIE   = "leafmap_cookie_consent"; // "accepted" | "declined"
+const LS_DATA     = "leafmap_data_v1";
+const LS_CHECKSUM = "leafmap_checksum";
+const LS_TIME     = "leafmap_time";
+const LS_AUTH     = "leafmap_auth_v1";
+const LS_COOKIE   = "leafmap_cookie_consent";
 
 // ── Status definitions ────────────────────────────────────────────────────────
 const STATUSES = [
@@ -347,20 +353,16 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allRoads     = [];
-let layerGroups  = {};   // ward → L.layerGroup
+let layerGroups  = {};
 let activeStatus = new Set(STATUSES.map(s => s.key));
 let activeWards  = new Set();
 let wardCounts   = {};
-
-// Map from rowIdx → { polylines: [], markers: [] } for diff-based updates
 let layerIndex   = {};
-
 let lastChecksum     = null;
 let lastLoadTime     = null;
 let pollTimer        = null;
 let isChecking       = false;
 let selectedRoadName = null;
-
 let authToken      = null;
 let authTokenType  = "idToken";
 let authEmail      = null;
@@ -369,46 +371,17 @@ let authAuthorised = false;
 
 // ── Cookie consent ────────────────────────────────────────────────────────────
 function cookieConsent() { return localStorage.getItem(LS_COOKIE); }
-
-function showCookieBanner() {
-  if (!cookieConsent()) document.getElementById("cookie-banner").classList.remove("hidden");
-}
-
-function cookieAccept() {
-  localStorage.setItem(LS_COOKIE, "accepted");
-  document.getElementById("cookie-banner").classList.add("hidden");
-  // Save current auth session if already signed in
-  persistAuthSession();
-}
-
-function cookieDecline() {
-  localStorage.setItem(LS_COOKIE, "declined");
-  document.getElementById("cookie-banner").classList.add("hidden");
-  // Clear any previously stored auth
-  localStorage.removeItem(LS_AUTH);
-}
-
-function showCookiePolicy() {
-  alert(
-    "Cookie / local storage policy\n\n" +
-    "If you accept, we store a small token in your browser's local storage (similar to a cookie) that remembers your Google sign-in for up to 55 minutes so you do not have to log in again on your next visit.\n\n" +
-    "We also store a local copy of the road data so the map loads instantly and we only download fresh data from Google Sheets when something has actually changed.\n\n" +
-    "No personal data is shared with third parties. You can clear this at any time by declining below or clearing your browser's site data."
-  );
-}
+function showCookieBanner() { if (!cookieConsent()) document.getElementById("cookie-banner").classList.remove("hidden"); }
+function cookieAccept() { localStorage.setItem(LS_COOKIE, "accepted"); document.getElementById("cookie-banner").classList.add("hidden"); persistAuthSession(); }
+function cookieDecline() { localStorage.setItem(LS_COOKIE, "declined"); document.getElementById("cookie-banner").classList.add("hidden"); localStorage.removeItem(LS_AUTH); }
+function showCookiePolicy() { alert("Cookie / local storage policy\n\nIf you accept, we store a small token in your browser's local storage (similar to a cookie) that remembers your Google sign-in for up to 55 minutes so you do not have to log in again on your next visit.\n\nWe also store a local copy of the road data so the map loads instantly and we only download fresh data from Google Sheets when something has actually changed.\n\nNo personal data is shared with third parties. You can clear this at any time by declining below or clearing your browser's site data."); }
 
 // ── Auth persistence ──────────────────────────────────────────────────────────
 function persistAuthSession() {
   if (cookieConsent() !== "accepted") return;
   if (!authToken || !authEmail || !authAuthorised) return;
-  try {
-    localStorage.setItem(LS_AUTH, JSON.stringify({
-      token: authToken, tokenType: authTokenType,
-      email: authEmail, expiry: authExpiry, authorised: authAuthorised
-    }));
-  } catch(e) { /* storage full – ignore */ }
+  try { localStorage.setItem(LS_AUTH, JSON.stringify({ token: authToken, tokenType: authTokenType, email: authEmail, expiry: authExpiry, authorised: authAuthorised })); } catch(e) {}
 }
-
 function restoreAuthSession() {
   if (cookieConsent() !== "accepted") return;
   try {
@@ -432,9 +405,7 @@ function setSyncState(state, text) {
   txt.textContent = text;
   if (state === "checking") icon.classList.add("spinning");
 }
-function formatTime(d) {
-  return d ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "never";
-}
+function formatTime(d) { return d ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "never"; }
 
 // ── WKT parser ────────────────────────────────────────────────────────────────
 function parseWKT(wkt) {
@@ -454,43 +425,48 @@ function escHtml(s) {
   return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
+function fmtResidences(val) {
+  const n = parseFloat(val);
+  if (isNaN(n) || n === 0) return null;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n));
+}
+
 // ── Popup HTML ────────────────────────────────────────────────────────────────
 function popupHtml(row) {
   const st     = getStatus(row.Status);
   const rowRef = encodeURIComponent(JSON.stringify({ rowIdx: row._rowIdx, street: row.Street, ward: row.Ward }));
+  const resStr = fmtResidences(row.Residences);
+  const resBadge = resStr
+    ? `<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`
+    : "";
   return `
     <div class="popup-street">${escHtml(row.Street)}</div>
     <div class="popup-ward">${escHtml(row.Ward)}</div>
-    <button class="popup-status-btn" onclick="popupEditClicked(this,'${rowRef}')" title="Click to change status">
-      <span class="popup-status ${st.popupCls}">${escHtml(st.label)}</span>
-    </button>
+    <div class="popup-meta">
+      <button class="popup-status-btn" onclick="popupEditClicked(this,'${rowRef}')" title="Click to change status">
+        <span class="popup-status ${st.popupCls}">${escHtml(st.label)}</span>
+      </button>
+      ${resBadge}
+    </div>
     <div class="popup-edit-area" id="edit-${row._rowIdx}" style="display:none"></div>
   `;
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
-// Diff-based render: only remove/add layers that have actually changed.
-// Preserves open popups on unchanged lines.
-
-// Snapshot of what is currently rendered, keyed by a stable string per road segment.
-// Key: `${rowIdx}_${segIdx}` → { layer, road }
 let renderedLayers = new Map();
 
 function segmentKey(rowIdx, segIdx) { return `${rowIdx}_${segIdx}`; }
 
 function desiredLayerSpec(road) {
-  // Returns null if the road should not be shown, else the visual spec.
   const sk   = statusKey(road.Status);
   const ward = (road.Ward || "").trim();
   if (!activeStatus.has(sk) || !activeWards.has(ward)) return null;
-
   const hasSel = !!selectedRoadName;
   const selKey = hasSel ? selectedRoadName.toLowerCase() : null;
   const isSel  = hasSel && (road.Street || "").trim().toLowerCase() === selKey;
   const opac   = hasSel && !isSel ? 0.15 : 0.85;
   const colour = colourFor(road.Status);
   const weight = weightFor(road.Status);
-
   return { colour, weight, opac, isSel, sk, ward };
 }
 
@@ -503,14 +479,11 @@ function specChanged(existingSpec, newSpec) {
 }
 
 function renderLines() {
-  // Collect desired state
-  const desired = new Map(); // segmentKey → { road, spec, pts (or null for markers) }
-
+  const desired = new Map();
   allRoads.forEach(road => {
     const spec = desiredLayerSpec(road);
     const ward = (road.Ward || "").trim();
     const segs = parseWKT(road.road_geometry);
-
     if (segs.length > 0) {
       segs.forEach((pts, segIdx) => {
         const k = segmentKey(road._rowIdx, segIdx);
@@ -525,61 +498,40 @@ function renderLines() {
     }
   });
 
-  // Remove layers that are no longer needed or whose spec changed
   renderedLayers.forEach((entry, k) => {
     const d = desired.get(k);
     if (!d || !d.spec || specChanged(entry.spec, d.spec)) {
-      // Remove all sub-layers for this key (glow + main for selected)
-      entry.layers.forEach(l => {
-        const ward = entry.ward;
-        if (layerGroups[ward]) layerGroups[ward].removeLayer(l);
-      });
+      entry.layers.forEach(l => { const ward = entry.ward; if (layerGroups[ward]) layerGroups[ward].removeLayer(l); });
       renderedLayers.delete(k);
     }
   });
 
-  // Add layers that are newly needed
   desired.forEach((d, k) => {
-    if (!d.spec) return; // should not be shown
-    if (renderedLayers.has(k)) return; // already rendered with correct spec
-
+    if (!d.spec) return;
+    if (renderedLayers.has(k)) return;
     const { road, spec, ward } = d;
     if (!layerGroups[ward]) return;
-
     const layers = [];
-
     if (!d.isMarker) {
       const { pts } = d;
       if (spec.isSel) {
-        // Glow layer (non-interactive)
         const glow = L.polyline(pts, { color: "#fff", weight: spec.weight + 6, opacity: 0.25, interactive: false });
-        glow.addTo(layerGroups[ward]);
-        layers.push(glow);
-        // Main line with wider interactive hit area
+        glow.addTo(layerGroups[ward]); layers.push(glow);
         const line = L.polyline(pts, { color: spec.colour, weight: spec.weight + 2, opacity: 1 });
-        line.bindPopup(popupHtml(road));
-        line.addTo(layerGroups[ward]);
-        layers.push(line);
+        line.bindPopup(popupHtml(road)); line.addTo(layerGroups[ward]); layers.push(line);
       } else {
-        // Invisible fat hit target for easy tapping on mobile, then visible line on top
         const hit = L.polyline(pts, { color: "transparent", weight: 20, opacity: 0, interactive: true });
-        hit.bindPopup(popupHtml(road));
-        hit.addTo(layerGroups[ward]);
-        layers.push(hit);
+        hit.bindPopup(popupHtml(road)); hit.addTo(layerGroups[ward]); layers.push(hit);
         const line = L.polyline(pts, { color: spec.colour, weight: spec.weight, opacity: spec.opac, interactive: false });
-        line.addTo(layerGroups[ward]);
-        layers.push(line);
+        line.addTo(layerGroups[ward]); layers.push(line);
       }
     } else {
       const marker = L.circleMarker(d.latlng, {
         radius: spec.isSel ? 7 : 5, color: spec.colour, fillColor: spec.colour,
         fillOpacity: spec.opac === 0.15 ? 0.2 : 0.8, weight: 1.5, opacity: spec.opac
       });
-      marker.bindPopup(popupHtml(road));
-      marker.addTo(layerGroups[ward]);
-      layers.push(marker);
+      marker.bindPopup(popupHtml(road)); marker.addTo(layerGroups[ward]); layers.push(marker);
     }
-
     renderedLayers.set(k, { layers, spec: { ...spec }, ward });
   });
 }
@@ -591,7 +543,27 @@ function updateStats() {
     const el = document.getElementById("stat-" + s.key);
     if (el) el.textContent = vis.filter(r => statusKey(r.Status) === s.key).length;
   });
+
+  // Estimated Residences Served = sum of Residences for complete+in_progress roads (all wards, not just visible)
+  // This matches the Dashboard H23 logic
+  let totalResidences = 0;
+  let servedResidences = 0;
+  allRoads.forEach(r => {
+    const res = parseFloat(r.Residences) || 0;
+    totalResidences += res;
+    const sk = statusKey(r.Status);
+    if (sk === "complete" || sk === "inprogress") servedResidences += res;
+  });
+
+  const resEl = document.getElementById("stat-residences");
+  const resPctEl = document.getElementById("stat-residences-pct");
+  if (resEl) resEl.textContent = Math.round(servedResidences).toLocaleString();
+  if (resPctEl && totalResidences > 0) {
+    const pct = (servedResidences / totalResidences * 100).toFixed(1);
+    resPctEl.textContent = ` / ${Math.round(totalResidences).toLocaleString()} (${pct}%)`;
+  }
 }
+
 function updateCountBadges() {
   STATUSES.forEach(s => {
     const el = document.getElementById("cnt-" + s.key);
@@ -609,8 +581,7 @@ function toggleStatus(btn) {
 
 // ── Wards ─────────────────────────────────────────────────────────────────────
 function soloWard(ward, e) {
-  e.stopPropagation(); // don't toggle the chip
-  // If this ward is the only active one, re-select all (toggle back)
+  e.stopPropagation();
   const allWards = Object.keys(wardCounts);
   if (activeWards.size === 1 && activeWards.has(ward)) {
     allWards.forEach(w => activeWards.add(w));
@@ -630,26 +601,12 @@ function buildWardList(filter = "") {
     .forEach(ward => {
       const chip = document.createElement("div");
       chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
-
-      // Solo button
       const soloBtn = document.createElement("button");
-      soloBtn.className = "ward-solo-btn";
-      soloBtn.textContent = "◉";
-      soloBtn.title = "Show only this ward";
+      soloBtn.className = "ward-solo-btn"; soloBtn.textContent = "◉"; soloBtn.title = "Show only this ward";
       soloBtn.addEventListener("click", ev => soloWard(ward, ev));
-
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "ward-chip-name";
-      nameSpan.textContent = ward;
-
-      const countSpan = document.createElement("span");
-      countSpan.className = "ward-chip-count";
-      countSpan.textContent = wardCounts[ward];
-
-      chip.appendChild(soloBtn);
-      chip.appendChild(nameSpan);
-      chip.appendChild(countSpan);
-
+      const nameSpan = document.createElement("span"); nameSpan.className = "ward-chip-name"; nameSpan.textContent = ward;
+      const countSpan = document.createElement("span"); countSpan.className = "ward-chip-count"; countSpan.textContent = wardCounts[ward];
+      chip.appendChild(soloBtn); chip.appendChild(nameSpan); chip.appendChild(countSpan);
       chip.addEventListener("click", () => {
         if (activeWards.has(ward)) activeWards.delete(ward); else activeWards.add(ward);
         chip.classList.toggle("selected");
@@ -674,61 +631,31 @@ function showError(msg) {
   setTimeout(() => { b.style.display = "none"; }, 8000);
 }
 
-// ── CSV fetch (no proxy — direct Google endpoint) ─────────────────────────────
+// ── CSV fetch ─────────────────────────────────────────────────────────────────
 async function fetchCSVText(url) {
-  // Add a cache-bust so browsers don't serve stale CSV
   const sep = url.includes("?") ? "&" : "?";
-  const res = await fetch(url + sep + "cachebust=" + Date.now(), {
-    // credentials: "omit" ensures no cookies are sent, which also helps ITP
-    credentials: "omit",
-    cache: "no-store"
-  });
+  const res = await fetch(url + sep + "cachebust=" + Date.now(), { credentials: "omit", cache: "no-store" });
   if (!res.ok) throw new Error("HTTP " + res.status);
   return res.text();
 }
-
-// Minimal CSV parser (avoids PapaParse dependency for checksum-only fetch)
-function parseCSVFirstCell(text) {
-  const firstLine = text.trim().split("\n")[0] || "";
-  return firstLine.split(",")[0].replace(/^"|"$/g, "").trim();
-}
-
-function parseCSVRows(text) {
-  // Use PapaParse for full data
-  return new Promise(resolve => {
-    Papa.parse(text, {
-      header: true, skipEmptyLines: true,
-      complete: r => resolve(r.data)
-    });
-  });
-}
+function parseCSVFirstCell(text) { const firstLine = text.trim().split("\n")[0] || ""; return firstLine.split(",")[0].replace(/^"|"$/g, "").trim(); }
+function parseCSVRows(text) { return new Promise(resolve => { Papa.parse(text, { header: true, skipEmptyLines: true, complete: r => resolve(r.data) }); }); }
 
 // ── localStorage cache ─────────────────────────────────────────────────────────
 function saveToCache(rows, checksum) {
-  try {
-    localStorage.setItem(LS_DATA,     JSON.stringify(rows));
-    localStorage.setItem(LS_CHECKSUM, checksum || "");
-    localStorage.setItem(LS_TIME,     new Date().toISOString());
-  } catch(e) { /* quota – skip */ }
+  try { localStorage.setItem(LS_DATA, JSON.stringify(rows)); localStorage.setItem(LS_CHECKSUM, checksum || ""); localStorage.setItem(LS_TIME, new Date().toISOString()); } catch(e) {}
 }
-
 function loadFromCache() {
   try {
     const raw = localStorage.getItem(LS_DATA);
     if (!raw) return null;
-    return {
-      rows:     JSON.parse(raw),
-      checksum: localStorage.getItem(LS_CHECKSUM) || "",
-      time:     new Date(localStorage.getItem(LS_TIME) || 0)
-    };
+    return { rows: JSON.parse(raw), checksum: localStorage.getItem(LS_CHECKSUM) || "", time: new Date(localStorage.getItem(LS_TIME) || 0) };
   } catch(e) { return null; }
 }
 
-// ── Ingest rows into state ─────────────────────────────────────────────────────
+// ── Ingest rows ─────────────────────────────────────────────────────────────────
 function ingestRows(rows, checksum, timestamp, isFirstLoad) {
   const prevWards = new Set(activeWards);
-
-  // Index new data by rowIdx so we can diff efficiently
   const newByIdx = new Map();
   rows.filter(r => r.Street && r.Street.trim()).forEach((r, i) => {
     r._rowIdx = i + 2;
@@ -736,64 +663,36 @@ function ingestRows(rows, checksum, timestamp, isFirstLoad) {
   });
 
   if (isFirstLoad) {
-    // Full replacement on first load
-    // Clear existing layers
-    renderedLayers.forEach(entry => {
-      entry.layers.forEach(l => {
-        Object.values(layerGroups).forEach(g => g.removeLayer(l));
-      });
-    });
+    renderedLayers.forEach(entry => { entry.layers.forEach(l => { Object.values(layerGroups).forEach(g => g.removeLayer(l)); }); });
     renderedLayers.clear();
-
     Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
     layerGroups = {}; wardCounts = {}; activeWards = new Set();
-
     allRoads = [...newByIdx.values()];
-    allRoads.forEach(r => {
-      const w = (r.Ward || "Unknown").trim();
-      wardCounts[w] = (wardCounts[w] || 0) + 1;
-    });
+    allRoads.forEach(r => { const w = (r.Ward || "Unknown").trim(); wardCounts[w] = (wardCounts[w] || 0) + 1; });
     Object.keys(wardCounts).forEach(w => {
       layerGroups[w] = L.layerGroup().addTo(map);
       if (!prevWards.size || prevWards.has(w)) activeWards.add(w);
     });
   } else {
-    // Incremental update: only touch rows whose Status changed
     let changed = false;
     allRoads.forEach(existing => {
       const updated = newByIdx.get(existing._rowIdx);
       if (updated && updated.Status !== existing.Status) {
         existing.Status = updated.Status;
-        // Invalidate rendered layers for this row so renderLines re-draws them
-        [...renderedLayers.keys()]
-          .filter(k => k.startsWith(existing._rowIdx + "_"))
-          .forEach(k => {
-            const entry = renderedLayers.get(k);
-            if (entry) {
-              entry.layers.forEach(l => {
-                const ward = entry.ward;
-                if (layerGroups[ward]) layerGroups[ward].removeLayer(l);
-              });
-              renderedLayers.delete(k);
-            }
-          });
+        [...renderedLayers.keys()].filter(k => k.startsWith(existing._rowIdx + "_")).forEach(k => {
+          const entry = renderedLayers.get(k);
+          if (entry) { entry.layers.forEach(l => { const ward = entry.ward; if (layerGroups[ward]) layerGroups[ward].removeLayer(l); }); renderedLayers.delete(k); }
+        });
         changed = true;
       }
     });
-    if (!changed) {
-      // Nothing actually changed; just update timestamps
-      lastChecksum = checksum;
-      lastLoadTime = timestamp;
-      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
-      return;
-    }
+    if (!changed) { lastChecksum = checksum; lastLoadTime = timestamp; setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime)); return; }
   }
 
   buildWardList(); updateCountBadges(); renderLines(); updateStats(); buildRoadSearchIndex();
 
   if (isFirstLoad) {
-    const pts = allRoads.filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"]))
-                        .map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
+    const pts = allRoads.filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"])).map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
     if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
   }
 
@@ -809,21 +708,15 @@ async function loadFullSheet(checksum) {
     const text = await fetchCSVText(SHEET_CSV_URL);
     const rows = await parseCSVRows(text);
     if (!rows.length) throw new Error("No data rows found.");
-
     const isFirst = !lastChecksum;
     const ts = new Date();
     ingestRows(rows, checksum, ts, isFirst);
     saveToCache(rows, checksum);
-  } finally {
-    document.getElementById("loading").classList.add("hidden");
-  }
+  } finally { document.getElementById("loading").classList.add("hidden"); }
 }
 
 // ── Checksum ──────────────────────────────────────────────────────────────────
-async function fetchChecksum() {
-  const text = await fetchCSVText(CHECKSUM_URL);
-  return parseCSVFirstCell(text);
-}
+async function fetchChecksum() { const text = await fetchCSVText(CHECKSUM_URL); return parseCSVFirstCell(text); }
 
 async function checkForUpdates(isManual = false) {
   if (isChecking) return;
@@ -831,16 +724,10 @@ async function checkForUpdates(isManual = false) {
   setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
   try {
     const cs = await fetchChecksum();
-    if (!cs || cs !== lastChecksum) {
-      await loadFullSheet(cs || null);
-    } else {
-      lastLoadTime = lastLoadTime || new Date();
-      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
-    }
-  } catch(err) {
-    setSyncState("error", "Check failed · " + formatTime(lastLoadTime));
-    if (isManual) showError("Refresh failed: " + err.message);
-  } finally { isChecking = false; schedulePoll(); }
+    if (!cs || cs !== lastChecksum) { await loadFullSheet(cs || null); }
+    else { lastLoadTime = lastLoadTime || new Date(); setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime)); }
+  } catch(err) { setSyncState("error", "Check failed · " + formatTime(lastLoadTime)); if (isManual) showError("Refresh failed: " + err.message); }
+  finally { isChecking = false; schedulePoll(); }
 }
 function schedulePoll() { clearTimeout(pollTimer); pollTimer = setTimeout(() => checkForUpdates(false), POLL_INTERVAL_MS); }
 function manualRefresh() { clearTimeout(pollTimer); checkForUpdates(true); }
@@ -876,18 +763,12 @@ function onRoadSearchInput(val) {
   const all = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q));
   const matches = [...all.filter(r => roadInActiveWards(r)), ...all.filter(r => !roadInActiveWards(r))].slice(0, 40);
   if (!matches.length) {
-    dropdown.innerHTML = `<div class="road-no-results">No roads found</div>`;
-    dropdown._matches = [];
+    dropdown.innerHTML = `<div class="road-no-results">No roads found</div>`; dropdown._matches = [];
   } else {
     dropdown.innerHTML = matches.map((r, i) => {
       const inActive = roadInActiveWards(r);
-      const wardHtml = [...r.wards].sort().map(w =>
-        `<span class="${activeWards.has(w) ? "road-option-ward-in" : "road-option-ward-out"}">${escHtml(w)}</span>`
-      ).join('<span style="color:var(--border)"> · </span>');
-      return `<div class="road-option${inActive ? "" : " out-of-ward"}" onmousedown="selectRoad(${i},event)">
-        <div class="road-option-name">${escHtml(r.name)}</div>
-        <div class="road-option-meta">${wardHtml}</div>
-      </div>`;
+      const wardHtml = [...r.wards].sort().map(w => `<span class="${activeWards.has(w) ? "road-option-ward-in" : "road-option-ward-out"}">${escHtml(w)}</span>`).join('<span style="color:var(--border)"> · </span>');
+      return `<div class="road-option${inActive ? "" : " out-of-ward"}" onmousedown="selectRoad(${i},event)"><div class="road-option-name">${escHtml(r.name)}</div><div class="road-option-meta">${wardHtml}</div></div>`;
     }).join("");
     dropdown._matches = matches;
   }
@@ -903,19 +784,8 @@ function onRoadSearchKey(e) {
   else if (e.key === "Enter") { e.preventDefault(); if (dropdownFocusIdx >= 0 && dropdown._matches?.[dropdownFocusIdx]) { selectedRoadName = null; activateRoad(dropdown._matches[dropdownFocusIdx]); closeDropdown(); } }
   else if (e.key === "Escape") { clearSelection(); closeDropdown(); }
 }
-function updateDropdownFocus(opts) {
-  opts.forEach((el, i) => el.classList.toggle("focused", i === dropdownFocusIdx));
-  if (opts[dropdownFocusIdx]) opts[dropdownFocusIdx].scrollIntoView({ block: "nearest" });
-}
-function selectRoad(idx, e) {
-  e.preventDefault();
-  const dropdown = document.getElementById("road-dropdown");
-  if (!dropdown._matches) return;
-  document.getElementById("road-search-input").value = dropdown._matches[idx].name;
-  selectedRoadName = null;
-  activateRoad(dropdown._matches[idx]);
-  closeDropdown();
-}
+function updateDropdownFocus(opts) { opts.forEach((el, i) => el.classList.toggle("focused", i === dropdownFocusIdx)); if (opts[dropdownFocusIdx]) opts[dropdownFocusIdx].scrollIntoView({ block: "nearest" }); }
+function selectRoad(idx, e) { e.preventDefault(); const dropdown = document.getElementById("road-dropdown"); if (!dropdown._matches) return; document.getElementById("road-search-input").value = dropdown._matches[idx].name; selectedRoadName = null; activateRoad(dropdown._matches[idx]); closeDropdown(); }
 function activateRoad(road) {
   selectedRoadName = road.name;
   const fitPts = [], fallPts = [];
@@ -935,11 +805,7 @@ function activateRoad(road) {
 }
 function clearSelection() { if (!selectedRoadName) return; selectedRoadName = null; renderLines(); }
 function closeDropdown() { document.getElementById("road-dropdown").classList.remove("open"); dropdownFocusIdx = -1; }
-function clearRoadSearch() {
-  document.getElementById("road-search-input").value = "";
-  document.getElementById("road-search-clear").style.display = "none";
-  clearSelection(); closeDropdown();
-}
+function clearRoadSearch() { document.getElementById("road-search-input").value = ""; document.getElementById("road-search-clear").style.display = "none"; clearSelection(); closeDropdown(); }
 map.on("click", () => clearSelection());
 document.addEventListener("click", e => { if (!e.target.closest(".road-search-wrap")) closeDropdown(); });
 
@@ -968,9 +834,7 @@ function showSignInPrompt(editDiv) {
 }
 
 function triggerSignIn() {
-  if (typeof google === "undefined" || !google.accounts) {
-    showEditMsg(pendingEdit?.editDiv, "Google Sign-In not loaded yet — try again in a moment.", "error"); return;
-  }
+  if (typeof google === "undefined" || !google.accounts) { showEditMsg(pendingEdit?.editDiv, "Google Sign-In not loaded yet — try again in a moment.", "error"); return; }
   google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onGoogleSignIn, auto_select: true, cancel_on_tap_outside: false });
   google.accounts.id.prompt(n => { if (n.isNotDisplayed() || n.isSkippedMoment()) useOAuthPopupFallback(); });
 }
@@ -999,17 +863,10 @@ async function processSignIn(idToken, emailHint, accessToken) {
     if (!data.ok) { if (editDiv) showEditMsg(editDiv, data.error || "Verification failed.", "error"); return; }
     authToken = idToken || accessToken; authTokenType = idToken ? "idToken" : "accessToken";
     authEmail = data.email || emailHint; authExpiry = Date.now() + 55 * 60 * 1000; authAuthorised = data.authorised === true;
-
-    // Offer to remember sign-in via cookie consent
     if (authAuthorised) {
-      if (cookieConsent() === "accepted") {
-        persistAuthSession();
-      } else if (!cookieConsent()) {
-        // Show banner so user can decide
-        showCookieBanner();
-      }
+      if (cookieConsent() === "accepted") { persistAuthSession(); }
+      else if (!cookieConsent()) { showCookieBanner(); }
     }
-
     if (!authAuthorised) { if (editDiv) showEditMsg(editDiv, `${authEmail} is not on the authorised list.`, "error"); return; }
     if (pendingEdit) { showStatusPicker(pendingEdit.editDiv, pendingEdit.rowRef); pendingEdit = null; }
   } catch(e) { if (editDiv) showEditMsg(editDiv, "Network error: " + e.message, "error"); }
@@ -1031,9 +888,7 @@ function showStatusPicker(editDiv, rowRef) {
         </button>`).join("")}
     </div>`;
   editDiv.querySelectorAll(".popup-status-option:not(.current)").forEach(btn => {
-    btn.addEventListener("click", function() {
-      submitStatusChange(parseInt(this.dataset.row, 10), this.dataset.sheetValue, this);
-    });
+    btn.addEventListener("click", function() { submitStatusChange(parseInt(this.dataset.row, 10), this.dataset.sheetValue, this); });
   });
 }
 
@@ -1042,25 +897,15 @@ async function submitStatusChange(rowIdx, sheetValue, btn) {
   editDiv.innerHTML = `<div class="popup-saving">Saving…</div>`;
   try {
     const tokenPayload = authTokenType === "idToken" ? { idToken: authToken } : { accessToken: authToken };
-    const data = await (await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "update", rowIndex: rowIdx, newStatus: sheetValue, ...tokenPayload })
-    })).json();
+    const data = await (await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify({ action: "update", rowIndex: rowIdx, newStatus: sheetValue, ...tokenPayload }) })).json();
     if (!data.ok) { showEditMsg(editDiv, data.error || "Save failed.", "error"); return; }
     const row = allRoads.find(r => r._rowIdx === rowIdx);
     if (row) {
-      const oldStatus = row.Status;
       row.Status = sheetValue;
-      // Invalidate only this row's rendered layers so popup stays open elsewhere
-      [...renderedLayers.keys()]
-        .filter(k => k.startsWith(rowIdx + "_"))
-        .forEach(k => {
-          const entry = renderedLayers.get(k);
-          if (entry) {
-            entry.layers.forEach(l => { if (layerGroups[entry.ward]) layerGroups[entry.ward].removeLayer(l); });
-            renderedLayers.delete(k);
-          }
-        });
+      [...renderedLayers.keys()].filter(k => k.startsWith(rowIdx + "_")).forEach(k => {
+        const entry = renderedLayers.get(k);
+        if (entry) { entry.layers.forEach(l => { if (layerGroups[entry.ward]) layerGroups[entry.ward].removeLayer(l); }); renderedLayers.delete(k); }
+      });
       renderLines(); updateStats(); updateCountBadges();
     }
     showEditMsg(editDiv, `Saved as "${getStatus(sheetValue).label}"`, "success");
@@ -1075,21 +920,11 @@ function signOut() {
   document.querySelectorAll(".popup-edit-area").forEach(el => el.style.display = "none");
 }
 
-function showEditMsg(editDiv, msg, type) {
-  if (!editDiv) return;
-  editDiv.innerHTML = `<div class="popup-auth-msg ${type}">${escHtml(msg)}</div>`;
-}
+function showEditMsg(editDiv, msg, type) { if (!editDiv) return; editDiv.innerHTML = `<div class="popup-auth-msg ${type}">${escHtml(msg)}</div>`; }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async function boot() {
-  // 1. Restore cached auth session (if consent given and session still valid)
   restoreAuthSession();
-
-  // Cookie banner is NOT shown at boot — only shown after an authorised user
-  // signs in (see processSignIn). The road data cache uses localStorage purely
-  // for performance/functionality and does not require consent under PECR.
-
-  // 2. Try to load from localStorage cache first for instant render
   const cached = loadFromCache();
   if (cached && cached.rows && cached.rows.length) {
     document.getElementById("loading-msg").textContent = "Loading from cache…";
@@ -1098,10 +933,8 @@ function showEditMsg(editDiv, msg, type) {
     ingestRows(cached.rows, cached.checksum, cached.time, true);
     document.getElementById("loading").classList.add("hidden");
     setSyncState("stale", "Cached · checking…");
-    // 3. Then check for updates in the background
     checkForUpdates(false);
   } else {
-    // 3. No cache — do a full fresh load
     checkForUpdates(false);
   }
 })();
