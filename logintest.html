@@ -66,7 +66,7 @@
   .stat-num.red    { color: var(--red); }
   .stat-num.purple { color: var(--purple); }
 
-  /* Estimated Residences Served bottom bar */
+  /* Residences served bottom bar */
   .res-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
   .res-value { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; color: var(--purple); }
   .res-sub   { font-size: 10px; color: var(--muted); }
@@ -173,7 +173,7 @@
   .popup-status-option.opt-planned    { border-left: 3px solid var(--blue); }
   .popup-status-option.opt-notstarted { border-left: 3px solid var(--red); }
   .popup-saving { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; text-align: center; padding: 4px 0; }
-  .popup-user-line { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .popup-user-line { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
   .popup-signout-link { color: var(--muted); font-size: 10px; cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-family: 'DM Mono', monospace; }
   .popup-signout-link:hover { color: var(--text); }
 
@@ -237,7 +237,7 @@
         </div>
       </div>
       <div id="stats-bottom">
-        <span class="res-label">🏠 Estimated Residences Served</span>
+        <span class="res-label">🏠 Residences served</span>
         <span>
           <span class="res-value" id="stat-residences">0</span>
           <span class="res-sub" id="stat-residences-pct"></span>
@@ -425,17 +425,23 @@ function escHtml(s) {
   return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
-function fmtResidences(val) {
-  const n = parseFloat(val);
-  if (isNaN(n) || n === 0) return null;
-  return Number.isInteger(n) ? String(n) : String(Math.round(n));
+function getResidences(row) {
+  // Robust lookup — handle any capitalisation the published CSV might use
+  const raw = row['Residences'] ?? row['residences'] ?? row['RESIDENCES'] ?? "";
+  return parseFloat(raw) || 0;
+}
+
+function fmtResidences(row) {
+  const n = getResidences(row);
+  if (!n) return null;
+  return String(Math.round(n));
 }
 
 // ── Popup HTML ────────────────────────────────────────────────────────────────
 function popupHtml(row) {
   const st     = getStatus(row.Status);
   const rowRef = encodeURIComponent(JSON.stringify({ rowIdx: row._rowIdx, street: row.Street, ward: row.Ward }));
-  const resStr = fmtResidences(row.Residences);
+  const resStr = fmtResidences(row);
   const resBadge = resStr
     ? `<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`
     : "";
@@ -544,12 +550,12 @@ function updateStats() {
     if (el) el.textContent = vis.filter(r => statusKey(r.Status) === s.key).length;
   });
 
-  // Estimated Residences Served = sum of Residences for complete+in_progress roads (all wards, not just visible)
+  // Residences served = sum of Residences for complete+in_progress roads (all wards, not just visible)
   // This matches the Dashboard H23 logic
   let totalResidences = 0;
   let servedResidences = 0;
   allRoads.forEach(r => {
-    const res = parseFloat(r.Residences) || 0;
+    const res = getResidences(r);
     totalResidences += res;
     const sk = statusKey(r.Status);
     if (sk === "complete" || sk === "inprogress") servedResidences += res;
@@ -878,7 +884,7 @@ function showStatusPicker(editDiv, rowRef) {
   editDiv.innerHTML = `
     <div class="popup-user-line">
       <span>✓ ${escHtml(authEmail)}</span>
-      <button class="popup-signout-link" onclick="signOut()">sign out</button>
+      <button class="popup-signout-link" onclick="signOut()">↩ sign out</button>
     </div>
     <div class="popup-status-select">
       ${STATUSES.map(s => `
