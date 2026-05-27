@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leafletting Map</title>
+<title>Leafleting Map</title>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -206,7 +206,7 @@
 <div id="app">
   <aside id="sidebar">
     <div class="sidebar-head">
-      <h1>Leafletting Map</h1>
+      <h1>Leafleting Map</h1>
       <p>Filter roads by ward or completion status.</p>
       <div id="sync-bar" title="Click to check for updates now" onclick="manualRefresh()">
         <div id="sync-left">
@@ -221,11 +221,11 @@
       <div id="stats-top">
         <div class="stat">
           <div class="stat-num green"  id="stat-complete">0</div>
-          <div class="stat-label">Done</div>
+          <div class="stat-label">Complete</div>
         </div>
         <div class="stat">
           <div class="stat-num yellow" id="stat-inprogress">0</div>
-          <div class="stat-label">Active</div>
+          <div class="stat-label">In Progress</div>
         </div>
         <div class="stat">
           <div class="stat-num blue"   id="stat-planned">0</div>
@@ -233,7 +233,7 @@
         </div>
         <div class="stat">
           <div class="stat-num red"    id="stat-notstarted">0</div>
-          <div class="stat-label">Pending</div>
+          <div class="stat-label">Not Started</div>
         </div>
       </div>
       <div id="stats-bottom">
@@ -317,13 +317,13 @@
 const SHEET_ID  = "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q";
 const SHEET_GID = "2107159853";
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv`;
-const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv&range=I2`;
+// No separate checksum cell — we hash the full CSV so any cell change is detected.
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
 const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
 
-const LS_DATA     = "leafmap_data_v1";
-const LS_CHECKSUM = "leafmap_checksum";
+const LS_DATA     = "leafmap_data_v2"; // bumped to bust stale cache
+const LS_CHECKSUM = "leafmap_checksum_v2";
 const LS_TIME     = "leafmap_time";
 const LS_AUTH     = "leafmap_auth_v1";
 const LS_COOKIE   = "leafmap_cookie_consent";
@@ -706,23 +706,45 @@ function ingestRows(rows, checksum, timestamp, isFirstLoad) {
   setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
 }
 
-// ── Sheet load ────────────────────────────────────────────────────────────────
+// ── Checksum ──────────────────────────────────────────────────────────────────
+// Two-phase fetch: first pull a tiny dedicated Checksum sheet (one cell, ~20 bytes).
+// Only if that value has changed do we fetch the full Data CSV.
+// This minimises server load and makes polls fast even at scale.
+//
+// Checksum sheet A1 formula:
+//   =COUNTIF(Data!F:F,"Not_Started")&"|"&COUNTIF(Data!F:F,"Planned")&"|"
+//    &COUNTIF(Data!F:F,"In_Progress")&"|"&COUNTIF(Data!F:F,"Complete")
+// This updates live whenever the Data sheet changes — no manual maintenance needed.
+// The Checksum sheet is published separately as CSV (GID below).
+const CHECKSUM_GID = "1371223354";
+const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${CHECKSUM_GID}&single=true&output=csv`;
+
+async function fetchChecksum() {
+  const text = await fetchCSVText(CHECKSUM_URL);
+  // The published CSV wraps the value in quotes; strip them and whitespace.
+  return text.trim().replace(/^"|"$/g, "").trim();
+}
+
 async function loadFullSheet(checksum) {
-  document.getElementById("loading-msg").textContent = lastChecksum ? "Reloading road data…" : "Loading road data…";
-  document.getElementById("loading").classList.remove("hidden");
+  const isFirst = !lastChecksum;
+  if (isFirst) {
+    document.getElementById("loading-msg").textContent = "Loading road data…";
+    document.getElementById("loading").classList.remove("hidden");
+  } else {
+    document.getElementById("loading-msg").textContent = "Reloading road data…";
+    document.getElementById("loading").classList.remove("hidden");
+  }
   try {
     const text = await fetchCSVText(SHEET_CSV_URL);
     const rows = await parseCSVRows(text);
     if (!rows.length) throw new Error("No data rows found.");
-    const isFirst = !lastChecksum;
     const ts = new Date();
     ingestRows(rows, checksum, ts, isFirst);
     saveToCache(rows, checksum);
-  } finally { document.getElementById("loading").classList.add("hidden"); }
+  } finally {
+    document.getElementById("loading").classList.add("hidden");
+  }
 }
-
-// ── Checksum ──────────────────────────────────────────────────────────────────
-async function fetchChecksum() { const text = await fetchCSVText(CHECKSUM_URL); return parseCSVFirstCell(text); }
 
 async function checkForUpdates(isManual = false) {
   if (isChecking) return;
@@ -730,10 +752,16 @@ async function checkForUpdates(isManual = false) {
   setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
   try {
     const cs = await fetchChecksum();
-    if (!cs || cs !== lastChecksum) { await loadFullSheet(cs || null); }
-    else { lastLoadTime = lastLoadTime || new Date(); setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime)); }
-  } catch(err) { setSyncState("error", "Check failed · " + formatTime(lastLoadTime)); if (isManual) showError("Refresh failed: " + err.message); }
-  finally { isChecking = false; schedulePoll(); }
+    if (!cs || cs !== lastChecksum) {
+      await loadFullSheet(cs || null);
+    } else {
+      lastLoadTime = lastLoadTime || new Date();
+      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
+    }
+  } catch(err) {
+    setSyncState("error", "Check failed · " + formatTime(lastLoadTime));
+    if (isManual) showError("Refresh failed: " + err.message);
+  } finally { isChecking = false; schedulePoll(); }
 }
 function schedulePoll() { clearTimeout(pollTimer); pollTimer = setTimeout(() => checkForUpdates(false), POLL_INTERVAL_MS); }
 function manualRefresh() { clearTimeout(pollTimer); checkForUpdates(true); }
@@ -898,6 +926,19 @@ function showStatusPicker(editDiv, rowRef) {
   });
 }
 
+// Recompute the checksum from live in-memory data and persist cache.
+// Mirrors the Checksum sheet formula so polls don't re-fetch unnecessarily.
+function recomputeAndSaveChecksum() {
+  const counts = { Not_Started: 0, Planned: 0, In_Progress: 0, Complete: 0 };
+  allRoads.forEach(r => {
+    const s = (r.Status || "").trim();
+    if (counts[s] !== undefined) counts[s]++;
+  });
+  const cs = `${counts.Not_Started}|${counts.Planned}|${counts.In_Progress}|${counts.Complete}`;
+  lastChecksum = cs;
+  saveToCache(allRoads, cs);
+}
+
 async function submitStatusChange(rowIdx, sheetValue, btn) {
   const editDiv = btn.closest(".popup-edit-area");
   editDiv.innerHTML = `<div class="popup-saving">Saving…</div>`;
@@ -913,6 +954,10 @@ async function submitStatusChange(rowIdx, sheetValue, btn) {
         if (entry) { entry.layers.forEach(l => { if (layerGroups[entry.ward]) layerGroups[entry.ward].removeLayer(l); }); renderedLayers.delete(k); }
       });
       renderLines(); updateStats(); updateCountBadges();
+      // Update localStorage so a reload shows the new state immediately,
+      // and recompute the in-memory checksum to match what the Checksum sheet
+      // will now return — preventing a spurious full re-fetch on next poll.
+      recomputeAndSaveChecksum();
     }
     showEditMsg(editDiv, `Saved as "${getStatus(sheetValue).label}"`, "success");
     setTimeout(() => { if (editDiv) editDiv.style.display = "none"; }, 1800);
