@@ -358,8 +358,9 @@ let activeStatus = new Set(STATUSES.map(s => s.key));
 let activeWards  = new Set();
 let wardCounts   = {};
 let layerIndex   = {};
-let lastChecksum     = null;
-let lastLoadTime     = null;
+let lastChecksum         = null;
+let lastLoadTime         = null;
+let residencesServedTotal = null; // fetched from Data!I2
 let pollTimer        = null;
 let isChecking       = false;
 let selectedRoadName = null;
@@ -543,6 +544,33 @@ function renderLines() {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
+// Updates just the residences served bar from the server-fetched I2 value.
+// Called from updateStats and after any checksum fetch or local status change.
+function updateResidencesStat(totalOverride) {
+  const resEl    = document.getElementById("stat-residences");
+  const resPctEl = document.getElementById("stat-residences-pct");
+  if (!resEl) return;
+
+  if (residencesServedTotal === null) {
+    resEl.textContent = "…";
+    if (resPctEl) resPctEl.textContent = "";
+    return;
+  }
+
+  resEl.textContent = Math.round(residencesServedTotal).toLocaleString();
+
+  // Compute total locally if not passed in
+  let total = totalOverride;
+  if (total === undefined) {
+    total = 0;
+    allRoads.forEach(r => { total += getResidences(r); });
+  }
+  if (resPctEl && total > 0) {
+    const pct = (residencesServedTotal / total * 100).toFixed(1);
+    resPctEl.textContent = ` / ${Math.round(total).toLocaleString()} (${pct}%)`;
+  }
+}
+
 function updateStats() {
   const vis = allRoads.filter(r => activeStatus.has(statusKey(r.Status)) && activeWards.has((r.Ward||"").trim()));
   STATUSES.forEach(s => {
@@ -550,24 +578,11 @@ function updateStats() {
     if (el) el.textContent = vis.filter(r => statusKey(r.Status) === s.key).length;
   });
 
-  // Residences served = sum of Residences for complete+in_progress roads (all wards, not just visible)
-  // This matches the Dashboard H23 logic
+  // Residences served comes from Data!I2 (server-calculated) — see updateResidencesStat().
+  // We still compute total locally for the percentage denominator.
   let totalResidences = 0;
-  let servedResidences = 0;
-  allRoads.forEach(r => {
-    const res = getResidences(r);
-    totalResidences += res;
-    const sk = statusKey(r.Status);
-    if (sk === "complete" || sk === "inprogress") servedResidences += res;
-  });
-
-  const resEl = document.getElementById("stat-residences");
-  const resPctEl = document.getElementById("stat-residences-pct");
-  if (resEl) resEl.textContent = Math.round(servedResidences).toLocaleString();
-  if (resPctEl && totalResidences > 0) {
-    const pct = (servedResidences / totalResidences * 100).toFixed(1);
-    resPctEl.textContent = ` / ${Math.round(totalResidences).toLocaleString()} (${pct}%)`;
-  }
+  allRoads.forEach(r => { totalResidences += getResidences(r); });
+  updateResidencesStat(totalResidences);
 }
 
 function updateCountBadges() {
@@ -713,16 +728,32 @@ function ingestRows(rows, checksum, timestamp, isFirstLoad) {
 //
 // Checksum sheet A1 formula:
 //   =COUNTIF(Data!F:F,"Not_Started")&"|"&COUNTIF(Data!F:F,"Planned")&"|"
-//    &COUNTIF(Data!F:F,"In_Progress")&"|"&COUNTIF(Data!F:F,"Complete")
-// This updates live whenever the Data sheet changes — no manual maintenance needed.
+//    &COUNTIF(Data!F:F,"In_Progress")&"|"&COUNTIF(Data!F:F,"Complete")&"|"&I2
+//
+// The residences served value (Data!I2) is embedded in the checksum string so
+// a single fetch both detects changes AND delivers the updated residences total.
+// Any status change — including a regression — alters at least two counts and
+// the residences figure, making false "no change" matches essentially impossible.
 // The Checksum sheet is published separately as CSV (GID below).
 const CHECKSUM_GID = "1371223354";
 const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${CHECKSUM_GID}&single=true&output=csv`;
 
+
 async function fetchChecksum() {
   const text = await fetchCSVText(CHECKSUM_URL);
-  // The published CSV wraps the value in quotes; strip them and whitespace.
-  return text.trim().replace(/^"|"$/g, "").trim();
+  const raw = text.trim().replace(/^"|"$/g, "").trim();
+  // Format: "notStarted|planned|inProgress|complete|residencesServed"
+  // Extract and apply the residences value from the last segment while we're here,
+  // so a single tiny fetch both detects changes and updates the sidebar total.
+  const parts = raw.split("|");
+  if (parts.length === 5) {
+    const res = parseFloat(parts[4]);
+    if (!isNaN(res)) {
+      residencesServedTotal = res;
+      updateResidencesStat();
+    }
+  }
+  return raw;
 }
 
 async function loadFullSheet(checksum) {
@@ -927,14 +958,22 @@ function showStatusPicker(editDiv, rowRef) {
 }
 
 // Recompute the checksum from live in-memory data and persist cache.
-// Mirrors the Checksum sheet formula so polls don't re-fetch unnecessarily.
+// Mirrors the Checksum sheet formula (including the residences segment) so polls
+// don't trigger a spurious re-fetch after a local status change.
 function recomputeAndSaveChecksum() {
   const counts = { Not_Started: 0, Planned: 0, In_Progress: 0, Complete: 0 };
+  let servedRes = 0;
   allRoads.forEach(r => {
     const s = (r.Status || "").trim();
     if (counts[s] !== undefined) counts[s]++;
+    const sk = statusKey(r.Status);
+    if (sk === "complete" || sk === "inprogress") servedRes += getResidences(r);
   });
-  const cs = `${counts.Not_Started}|${counts.Planned}|${counts.In_Progress}|${counts.Complete}`;
+  // Mirror the sheet formula: notStarted|planned|inProgress|complete|residencesServed
+  const cs = `${counts.Not_Started}|${counts.Planned}|${counts.In_Progress}|${counts.Complete}|${Math.round(servedRes)}`;
+  // Update the sidebar immediately — no extra fetch needed
+  residencesServedTotal = servedRes;
+  updateResidencesStat();
   lastChecksum = cs;
   saveToCache(allRoads, cs);
 }
