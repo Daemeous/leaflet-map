@@ -317,13 +317,13 @@
 const SHEET_ID  = "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q";
 const SHEET_GID = "2107159853";
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv`;
-const CHECKSUM_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv&range=I2`;
+// No separate checksum cell — we hash the full CSV so any cell change is detected.
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
 const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
 
-const LS_DATA     = "leafmap_data_v1";
-const LS_CHECKSUM = "leafmap_checksum";
+const LS_DATA     = "leafmap_data_v2"; // bumped to bust stale cache
+const LS_CHECKSUM = "leafmap_checksum_v2";
 const LS_TIME     = "leafmap_time";
 const LS_AUTH     = "leafmap_auth_v1";
 const LS_COOKIE   = "leafmap_cookie_consent";
@@ -706,32 +706,38 @@ function ingestRows(rows, checksum, timestamp, isFirstLoad) {
   setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
 }
 
-// ── Sheet load ────────────────────────────────────────────────────────────────
-async function loadFullSheet(checksum) {
-  document.getElementById("loading-msg").textContent = lastChecksum ? "Reloading road data…" : "Loading road data…";
-  document.getElementById("loading").classList.remove("hidden");
-  try {
-    const text = await fetchCSVText(SHEET_CSV_URL);
-    const rows = await parseCSVRows(text);
-    if (!rows.length) throw new Error("No data rows found.");
-    const isFirst = !lastChecksum;
-    const ts = new Date();
-    ingestRows(rows, checksum, ts, isFirst);
-    saveToCache(rows, checksum);
-  } finally { document.getElementById("loading").classList.add("hidden"); }
+// ── Content hash (replaces single-cell checksum) ─────────────────────────────
+// We hash the full CSV text so any edit — status changes, residences, anything
+// — is detected without relying on a manually-maintained checksum cell.
+async function hashText(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
-
-// ── Checksum ──────────────────────────────────────────────────────────────────
-async function fetchChecksum() { const text = await fetchCSVText(CHECKSUM_URL); return parseCSVFirstCell(text); }
 
 async function checkForUpdates(isManual = false) {
   if (isChecking) return;
   isChecking = true;
   setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
   try {
-    const cs = await fetchChecksum();
-    if (!cs || cs !== lastChecksum) { await loadFullSheet(cs || null); }
-    else { lastLoadTime = lastLoadTime || new Date(); setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime)); }
+    const text = await fetchCSVText(SHEET_CSV_URL);
+    const hash = await hashText(text);
+    if (hash !== lastChecksum) {
+      // Data changed — parse and ingest
+      const rows = await parseCSVRows(text);
+      if (!rows.length) throw new Error("No data rows found.");
+      const isFirst = !lastChecksum;
+      const ts = new Date();
+      if (isFirst) {
+        document.getElementById("loading-msg").textContent = "Loading road data…";
+        document.getElementById("loading").classList.remove("hidden");
+      }
+      ingestRows(rows, hash, ts, isFirst);
+      saveToCache(rows, hash);
+      if (isFirst) document.getElementById("loading").classList.add("hidden");
+    } else {
+      lastLoadTime = lastLoadTime || new Date();
+      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
+    }
   } catch(err) { setSyncState("error", "Check failed · " + formatTime(lastLoadTime)); if (isManual) showError("Refresh failed: " + err.message); }
   finally { isChecking = false; schedulePoll(); }
 }
