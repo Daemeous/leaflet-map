@@ -1111,6 +1111,19 @@ function setDrawHint(msg) {
   else{el.classList.remove("visible");}
 }
 
+function setLayersInteractive(interactive) {
+  // Enable or disable all road hit layers so draw-mode taps reach the map click handler
+  renderedLayers.forEach(entry=>{
+    entry.layers.forEach(l=>{
+      if(l.options&&l.options.weight===20) { // hit layers only (transparent, weight 20)
+        if(interactive) l.addInteractiveTarget(l._path||l._renderer&&l._renderer._container);
+        l.options.interactive=interactive;
+        if(l._path) l._path.style.pointerEvents=interactive?"visiblePainted":"none";
+      }
+    });
+  });
+}
+
 function enterDrawMode(road,geomData) {
   drawState="place-start";
   drawRoad=road;
@@ -1120,6 +1133,9 @@ function enterDrawMode(road,geomData) {
   drawEndProp=null;
   drawBothSides=false;
   drawActiveHandle=null;
+
+  // Disable road hit layers so taps pass through to the map click handler
+  setLayersInteractive(false);
 
   // Highlight road
   drawRoadHighlightLayers.forEach(l=>partialLayerGroup.removeLayer(l));
@@ -1159,6 +1175,8 @@ function exitDrawMode(geomData) {
   if(drawHandleStart){partialLayerGroup.removeLayer(drawHandleStart);drawHandleStart=null;}
   if(drawHandleEnd  ){partialLayerGroup.removeLayer(drawHandleEnd);  drawHandleEnd=null;}
   drawActiveHandle=null;
+  // Re-enable road hit layers
+  setLayersInteractive(true);
   document.getElementById("map").classList.remove("draw-mode");
   setDrawHint(null);
   // Re-render partials cleanly
@@ -1170,52 +1188,44 @@ function handleDrawClick(e) {
   const geomData=getRoadGeomData(drawRoad);
   if(!geomData) return;
 
-  // Check if clicking near an existing handle first
-  if(drawState==="adjust"||drawState==="place-end") {
-    if(drawHandleStart&&drawHandleEnd) {
-      const sLatLng=drawHandleStart.getLatLng();
-      const eLatLng=drawHandleEnd.getLatLng();
-      const distS=map.latLngToContainerPoint(sLatLng).distanceTo(map.latLngToContainerPoint(e.latlng));
-      const distE=map.latLngToContainerPoint(eLatLng).distanceTo(map.latLngToContainerPoint(e.latlng));
-      if(distS<30||distE<30) {
-        drawActiveHandle=distS<distE?"start":"end";
-        return; // handle selected, next tap moves it
-      }
-    }
-  }
-
   const snapped=snapToRoad(e.latlng,geomData.pts,geomData.cumLens);
 
   if(drawState==="place-start") {
+    // First tap: place start handle, move to place-end state
     drawStartProp=snapped.prop;
     drawEndProp=null;
     drawState="place-end";
     placeHandles(geomData);
     setDrawHint("Tap road to place end point");
+
   } else if(drawState==="place-end") {
+    // Second tap: place end handle, enter adjust state
     drawEndProp=snapped.prop;
-    if(drawEndProp===drawStartProp) return;
-    // Ensure start < end
+    if(Math.abs(drawEndProp-drawStartProp)<0.001) return; // too close, ignore
     if(drawStartProp>drawEndProp){[drawStartProp,drawEndProp]=[drawEndProp,drawStartProp];}
     drawState="adjust";
+    drawActiveHandle=null;
     placeHandles(geomData);
     updateDrawPreview(geomData);
     showDrawControls(geomData);
-    setDrawHint("Drag handles to adjust · Flip side if needed · Save when done");
+    setDrawHint("Tap a handle to select it, then tap road to move · Save when done");
+
   } else if(drawState==="adjust") {
     if(drawActiveHandle) {
-      // Move the active handle to snapped position
+      // An active handle is selected — move it to tapped position
       if(drawActiveHandle==="start") {
         drawStartProp=snapped.prop;
-        if(drawStartProp>drawEndProp){[drawStartProp,drawEndProp]=[drawEndProp,drawStartProp];}
+        if(drawStartProp>=drawEndProp) drawStartProp=Math.max(0,drawEndProp-0.001);
       } else {
         drawEndProp=snapped.prop;
-        if(drawStartProp>drawEndProp){[drawStartProp,drawEndProp]=[drawEndProp,drawStartProp];}
+        if(drawEndProp<=drawStartProp) drawEndProp=Math.min(1,drawStartProp+0.001);
       }
       drawActiveHandle=null;
       placeHandles(geomData);
       updateDrawPreview(geomData);
+      setDrawHint("Tap a handle to select it, then tap road to move · Save when done");
     }
+    // If no handle active, tapping the map does nothing (use handle tap to select first)
   }
 }
 
@@ -1277,7 +1287,7 @@ function showDrawControls(geomData) {
     <div class="popup-partial-actions" id="draw-controls-inner">
       <button class="popup-partial-action-btn${drawBothSides?" active":""}" id="draw-btn-both">Both sides</button>
       <button class="popup-partial-action-btn${!drawBothSides?" active":""}" id="draw-btn-single">One side</button>
-      <button class="popup-partial-action-btn" id="draw-btn-flip">⇄ Flip side</button>
+      <button class="popup-partial-action-btn" id="draw-btn-flip" style="${drawBothSides?"display:none":""}">⇄ Flip side</button>
     </div>
     <div class="popup-partial-actions" style="margin-top:6px;">
       <button class="popup-partial-action-btn active" id="draw-btn-save" style="border-color:var(--darkgreen);color:#4ecb82;">✓ Save</button>
@@ -1295,12 +1305,14 @@ function showDrawControls(geomData) {
     drawBothSides=true;
     content.querySelector("#draw-btn-both").classList.add("active");
     content.querySelector("#draw-btn-single").classList.remove("active");
+    content.querySelector("#draw-btn-flip").style.display="none";
     updateDrawPreview(geomData);
   });
   content.querySelector("#draw-btn-single").addEventListener("click",()=>{
     drawBothSides=false;
     content.querySelector("#draw-btn-single").classList.add("active");
     content.querySelector("#draw-btn-both").classList.remove("active");
+    content.querySelector("#draw-btn-flip").style.display="";
     updateDrawPreview(geomData);
   });
   content.querySelector("#draw-btn-flip").addEventListener("click",()=>{
