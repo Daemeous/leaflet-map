@@ -259,7 +259,7 @@ const CHECKSUM_GID  = "1371223354";
 const CHECKSUM_URL  = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${CHECKSUM_GID}&single=true&output=csv`;
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
-const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
+const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbyeyfwzYRVEUPse35hzVyPJAtOBut7swG4YlGA0hu1qQQACijzJoiZ6O2uMfmJGnJg4/exec";
 const PARTIAL_ZOOM_THRESHOLD = 14; // partial overlays hidden below this zoom level
 const LS_DATA     = "leafmap_data_v3"; // bumped — new partial_geometry column
 const LS_CHECKSUM = "leafmap_checksum_v3";
@@ -322,6 +322,7 @@ let drawPreviewLayers = [];  // temp map layers for live preview
 let drawHandleStart = null;  // L.circleMarker
 let drawHandleEnd   = null;
 let drawActiveHandle = null; // 'start'|'end' — which handle is currently being moved
+let drawFlipped    = false;  // whether the offset side has been flipped
 let drawRoadHighlightLayers = []; // highlight of the selected road during drawing
 
 // ── Cookie consent ────────────────────────────────────────────────────────────
@@ -477,7 +478,7 @@ function computePartialEstimate(road) {
   // Parse "seg0:0.1-0.8:B|seg1:0.2-1.0:S" format
   let covered=0;
   pgStr.split("|").forEach(part=>{
-    const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S)$/);
+    const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S|F)$/);
     if(!m) return;
     const segIdx=parseInt(m[1]);
     const t0=parseFloat(m[2]),t1=parseFloat(m[3]);
@@ -499,7 +500,7 @@ function computePartialEstimate(road) {
 function parsePartialGeom(str) {
   if(!str||str==="-") return [];
   return str.split("|").map(part=>{
-    const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S)$/);
+    const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S|F)$/);
     if(!m) return null;
     return {segIdx:parseInt(m[1]),t0:parseFloat(m[2]),t1:parseFloat(m[3]),side:m[4]};
   }).filter(Boolean);
@@ -590,8 +591,8 @@ function renderPartialForRoad(road) {
       const l=L.polyline(ptsSubset,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_BOTH,opacity:0.9,interactive:false});
       l.addTo(partialLayerGroup); layers.push(l);
     } else {
-      // Single side — offset left of direction of travel
-      const offsetPts=offsetPolyline(ptsSubset,PARTIAL_OFFSET_M);
+      // S = left of travel direction, F = right (flipped)
+      const offsetPts=offsetPolyline(ptsSubset, side==="F" ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
       const l=L.polyline(offsetPts,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_SINGLE,opacity:0.9,interactive:false});
       l.addTo(partialLayerGroup); layers.push(l);
     }
@@ -1144,6 +1145,7 @@ function enterDrawMode(road,geomData) {
   drawStartProp=null;
   drawEndProp=null;
   drawBothSides=false;
+  drawFlipped=false;
   drawActiveHandle=null;
 
   // Disable road hit layers so taps pass through to the map click handler
@@ -1160,24 +1162,14 @@ function enterDrawMode(road,geomData) {
   document.getElementById("map").classList.add("draw-mode");
   setDrawHint("Tap road to place start point");
 
-  // Show existing partial as starting state if any
+  // If existing sections present, render them faintly so user can see what's there,
+  // then start fresh so a new section can be drawn and appended.
   const existing=parsePartialGeom(road.partial_geometry||"");
   if(existing.length) {
-    // Use first segment's t0/t1 as starting handles (translated to global props)
-    const first=existing[0];
-    const brk=geomData.breaks[first.segIdx];
-    if(brk) {
-      const segLen=brk.endProp-brk.startProp;
-      drawStartProp=brk.startProp+first.t0*segLen;
-      drawEndProp  =brk.startProp+first.t1*segLen;
-      drawBothSides=first.side==="B";
-      drawState="adjust";
-      placeHandles(geomData);
-      updateDrawPreview(geomData);
-      showDrawControls(geomData);
-      setDrawHint("Drag handles or tap to move, then Save");
-    }
+    setDrawHint(`${existing.length} existing section(s) — tap road to add another, or Save with no selection to keep as-is, or Clear All to remove`);
   }
+  // Always start in place-start so user draws a fresh section.
+  // On save, new section is appended to existing ones.
 }
 
 function exitDrawMode(geomData) {
@@ -1277,7 +1269,8 @@ function updateDrawPreview(geomData) {
     const l=L.polyline(subset,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_BOTH,opacity:0.85,interactive:false,dashArray:"8 4"});
     l.addTo(partialLayerGroup); drawPreviewLayers.push(l);
   } else {
-    const offsetPts=offsetPolyline(subset,PARTIAL_OFFSET_M);
+    // drawFlipped negates the offset so preview matches the saved render direction
+    const offsetPts=offsetPolyline(subset, drawFlipped ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
     const l=L.polyline(offsetPts,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_SINGLE,opacity:0.85,interactive:false,dashArray:"8 4"});
     l.addTo(partialLayerGroup); drawPreviewLayers.push(l);
   }
@@ -1328,9 +1321,8 @@ function showDrawControls(geomData) {
     updateDrawPreview(geomData);
   });
   content.querySelector("#draw-btn-flip").addEventListener("click",()=>{
-    // Flip = swap start/end props (reverses offset direction)
-    [drawStartProp,drawEndProp]=[drawEndProp,drawStartProp];
-    placeHandles(geomData);
+    // Toggle flip flag — negates offset direction in preview and saved render
+    drawFlipped=!drawFlipped;
     updateDrawPreview(geomData);
   });
   content.querySelector("#draw-btn-save").addEventListener("click",()=>savePartialGeom(geomData,content.querySelector("#draw-save-status")));
@@ -1343,14 +1335,25 @@ async function savePartialGeom(geomData,statusEl) {
   if(drawStartProp===null||drawEndProp===null) return;
   const t0=Math.min(drawStartProp,drawEndProp);
   const t1=Math.max(drawStartProp,drawEndProp);
-  const side=drawBothSides?"B":"S";
+  const side=drawBothSides?"B":(drawFlipped?"F":"S");
 
   // Convert global props to per-segment props
   const segProps=globalPropToSegProps(t0,t1,geomData);
-  if(!segProps.length){if(statusEl)statusEl.textContent="No coverage — adjust handles.";return;}
+  if(!segProps.length){
+    // No new section drawn — if there's existing data just close without changing
+    if((drawRoad.partial_geometry||"-")!=="-"){
+      exitDrawMode(geomData); map.closePopup(); renderAllPartials(); updateStats();
+    } else {
+      if(statusEl) statusEl.textContent="No section drawn — tap road to place points first.";
+    }
+    return;
+  }
 
-  const parts=segProps.map(sp=>({segIdx:sp.segIdx,t0:sp.t0,t1:sp.t1,side}));
-  const encoded=encodePartialGeom(parts);
+  const newParts=segProps.map(sp=>({segIdx:sp.segIdx,t0:sp.t0,t1:sp.t1,side}));
+  // Append to any existing sections rather than replacing them
+  const existingParts=parsePartialGeom(drawRoad.partial_geometry||"");
+  const allParts=[...existingParts,...newParts];
+  const encoded=encodePartialGeom(allParts);
 
   if(statusEl) statusEl.textContent="Saving…";
   try{
