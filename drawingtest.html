@@ -259,7 +259,7 @@ const CHECKSUM_GID  = "1371223354";
 const CHECKSUM_URL  = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${CHECKSUM_GID}&single=true&output=csv`;
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
-const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbw_BRjoq9lhnn2vOFNZyfIrD8nhKS1ehSWDCSVjrhuBqvQ4RuUvjBo6XDmoM0YpreaK/exec";
+const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
 const PARTIAL_ZOOM_THRESHOLD = 14; // partial overlays hidden below this zoom level
 const LS_DATA     = "leafmap_data_v3"; // bumped — new partial_geometry column
 const LS_CHECKSUM = "leafmap_checksum_v3";
@@ -399,21 +399,30 @@ function interpolateAlongPts(pts,cumLens,t) {
 // Snap a latlng click to the nearest point on the road's combined geometry
 // Returns { prop: 0-1, latlng: [lat,lon] }
 function snapToRoad(clickLatLng, pts, cumLens) {
+  // Snap a map click to the nearest point on the road polyline.
+  // Returns { prop: 0-1 along total road length, latlng: [lat,lon] }
   const total=cumLens[cumLens.length-1];
   if(total===0) return {prop:0,latlng:pts[0]};
   let bestDist=Infinity, bestProp=0, bestPt=pts[0];
   const click=turfPt([clickLatLng.lat,clickLatLng.lng]);
   for(let i=1;i<pts.length;i++) {
-    const line=turf.lineString([[pts[i-1][1],pts[i-1][0]],[pts[i][1],pts[i][0]]]);
+    const a=[pts[i-1][1],pts[i-1][0]]; // [lon,lat] for turf
+    const b=[pts[i][1],pts[i][0]];
+    const line=turf.lineString([a,b]);
     const snapped=turf.nearestPointOnLine(line,click,{units:"meters"});
-    const dist=snapped.properties.dist;
-    if(dist<bestDist) {
-      bestDist=dist;
-      const segProp=snapped.properties.location/(turf.length(line,{units:"meters"})||1);
-      const segStart=cumLens[i-1], segEnd=cumLens[i];
-      const linearDist=segStart+(segEnd-segStart)*Math.min(1,Math.max(0,segProp));
-      bestProp=linearDist/total;
-      const c=snapped.geometry.coordinates;
+    const distToLine=snapped.properties.dist; // metres from click to line
+    if(distToLine<bestDist) {
+      bestDist=distToLine;
+      const c=snapped.geometry.coordinates; // [lon,lat]
+      // Compute how far the snapped point is from pts[i-1] along this segment,
+      // using direct distance — avoids relying on turf's .location unit handling.
+      const distAlongSeg=turf.distance(
+        turf.point(a), turf.point(c), {units:"meters"}
+      );
+      const segLen=cumLens[i]-cumLens[i-1];
+      // Clamp to [0, segLen] to guard against floating-point overshoot
+      const clampedDist=Math.min(segLen, Math.max(0, distAlongSeg));
+      bestProp=(cumLens[i-1]+clampedDist)/total;
       bestPt=[c[1],c[0]];
     }
   }
@@ -433,7 +442,10 @@ function getRoadGeomData(road) {
   segs.forEach(seg=>{
     const startProp=total>0?cumLens[idx]/total:0;
     idx+=seg.length;
-    const endProp=total>0?cumLens[Math.min(idx,cumLens.length-1)]/total:1;
+    // endProp = cumLens at the LAST point of this segment (idx-1),
+    // not idx which is the first point of the next segment.
+    const endIdx=Math.min(idx-1, cumLens.length-1);
+    const endProp=total>0?cumLens[endIdx]/total:1;
     breaks.push({startProp,endProp,segIdx:breaks.length});
   });
   return {pts,cumLens,total,breaks,segs};
