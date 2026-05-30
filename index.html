@@ -4,284 +4,225 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Leafleting Map</title>
-
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   :root {
-    --bg:        #0f1117;
-    --panel:     #181c27;
-    --border:    #2a2f3f;
-    --text:      #e8eaf0;
-    --muted:     #7a8099;
-    --accent:    #4f8ef7;
-    --green:     #3ecf6e;
-    --yellow:    #f5c842;
-    --red:       #f75f5f;
-    --blue:      #4f8ef7;
-    --purple:    #a78bfa;
-    --panel-w:   310px;
+    --bg:#0f1117; --panel:#181c27; --border:#2a2f3f; --text:#e8eaf0; --muted:#7a8099;
+    --accent:#4f8ef7; --green:#3ecf6e; --yellow:#f5c842; --red:#f75f5f;
+    --blue:#4f8ef7; --purple:#a78bfa; --darkgreen:#1e7e4a; --panel-w:310px;
   }
-
-  html, body { height: 100%; font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
-  #app { display: flex; height: 100vh; }
-  #sidebar { width: var(--panel-w); min-width: var(--panel-w); background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 1000; overflow: hidden; }
-  #map-wrap { flex: 1; position: relative; }
-  #map { width: 100%; height: 100%; }
-
-  .sidebar-head { padding: 20px 20px 14px; border-bottom: 1px solid var(--border); }
-  .sidebar-head h1 { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
-  .sidebar-head p { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
-
-  #sync-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 6px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); cursor: pointer; transition: background 0.15s, border-color 0.15s; user-select: none; }
-  #sync-bar:hover { background: rgba(255,255,255,0.07); border-color: var(--muted); }
-  #sync-bar:active { background: rgba(255,255,255,0.1); }
-  #sync-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
-  #sync-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--muted); transition: background 0.3s, box-shadow 0.3s; }
-  #sync-dot.fresh    { background: var(--green);  box-shadow: 0 0 5px var(--green); }
-  #sync-dot.stale    { background: var(--yellow); box-shadow: 0 0 5px var(--yellow); }
-  #sync-dot.error    { background: var(--red);    box-shadow: 0 0 5px var(--red); }
-  #sync-dot.checking { background: var(--accent); box-shadow: 0 0 5px var(--accent); animation: pulse-dot 0.8s ease-in-out infinite alternate; }
-  @keyframes pulse-dot { from { opacity: 1; } to { opacity: 0.3; } }
-  #sync-text { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #sync-icon { font-size: 13px; color: var(--muted); flex-shrink: 0; transition: transform 0.4s; }
-  #sync-icon.spinning { animation: spin 0.7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* Stats: 2 rows — top row 4 status stats, bottom row residences full-width */
-  #stats { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
-  #stats-top { display: flex; }
-  #stats-bottom { border-top: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .stat { flex: 1; padding: 10px 8px; text-align: center; border-right: 1px solid var(--border); }
-  .stat:last-child { border-right: none; }
-  .stat-num { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; line-height: 1; }
-  .stat-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
-  .stat-num.green  { color: var(--green); }
-  .stat-num.yellow { color: var(--yellow); }
-  .stat-num.blue   { color: var(--blue); }
-  .stat-num.red    { color: var(--red); }
-  .stat-num.purple { color: var(--purple); }
-
-  /* Residences served bottom bar */
-  .res-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-  .res-value { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; color: var(--purple); }
-  .res-sub   { font-size: 10px; color: var(--muted); }
-
-  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 16px 20px 20px; }
-  .sidebar-scroll::-webkit-scrollbar { width: 4px; }
-  .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
-  .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  .filter-section { margin-bottom: 20px; }
-  .filter-label { font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
-
-  .status-toggles { display: flex; flex-direction: column; gap: 6px; }
-  .status-toggle { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; transition: background 0.15s, border-color 0.15s, opacity 0.15s; text-align: left; width: 100%; }
-  .status-toggle:hover { background: rgba(255,255,255,0.04); }
-  .status-toggle.active { border-color: transparent; }
-  .status-toggle.inactive { opacity: 0.35; }
-  .status-toggle.active.s-complete   { background: rgba(62,207,110,0.12);  border-color: rgba(62,207,110,0.35); }
-  .status-toggle.active.s-inprogress { background: rgba(245,200,66,0.12);  border-color: rgba(245,200,66,0.35); }
-  .status-toggle.active.s-planned    { background: rgba(79,142,247,0.12);  border-color: rgba(79,142,247,0.35); }
-  .status-toggle.active.s-notstarted { background: rgba(247,95,95,0.12);   border-color: rgba(247,95,95,0.35); }
-  .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .dot-green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
-  .dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
-  .dot-blue   { background: var(--blue);   box-shadow: 0 0 6px var(--blue); }
-  .dot-red    { background: var(--red);    box-shadow: 0 0 6px var(--red); }
-  .toggle-count { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); }
-
-  .road-search-wrap { position: relative; margin-bottom: 0; }
-  .road-search-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; padding: 7px 32px 7px 10px; outline: none; transition: border-color 0.15s; }
-  .road-search-input:focus { border-color: var(--accent); }
-  .road-search-input::placeholder { color: var(--muted); }
-  .road-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); font-size: 14px; cursor: pointer; display: none; line-height: 1; padding: 2px 4px; }
-  .road-search-clear:hover { color: var(--text); }
-  .road-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); z-index: 2000; max-height: 220px; overflow-y: auto; display: none; }
-  .road-dropdown.open { display: block; }
-  .road-dropdown::-webkit-scrollbar { width: 4px; }
-  .road-dropdown::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-  .road-option { padding: 8px 12px; cursor: pointer; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.1s; background: rgba(79,142,247,0.07); }
-  .road-option.out-of-ward { background: rgba(0,0,0,0.35); }
-  .road-option:last-child { border-bottom: none; }
-  .road-option:hover, .road-option.focused { background: rgba(79,142,247,0.22) !important; color: var(--text); }
-  .road-option-name { font-weight: 500; color: var(--text); }
-  .road-option-meta { font-size: 10px; margin-top: 1px; font-family: 'DM Mono', monospace; }
-  .road-option-ward-in  { color: #7ab8f5; }
-  .road-option-ward-out { color: var(--muted); opacity: 0.65; }
-  .road-no-results { padding: 10px 12px; font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; text-align: center; }
-
-  .ward-search { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; padding: 7px 10px; margin-bottom: 8px; outline: none; transition: border-color 0.15s; }
-  .ward-search:focus { border-color: var(--accent); }
-  .ward-search::placeholder { color: var(--muted); }
-  .ward-all-btn { width: 100%; padding: 6px 10px; margin-bottom: 8px; background: transparent; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
-  .ward-all-btn:hover { color: var(--text); border-color: var(--muted); }
-  .ward-list { display: flex; flex-direction: column; gap: 3px; }
-  .ward-chip { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 5px; border: 1px solid transparent; background: rgba(255,255,255,0.03); color: var(--muted); font-size: 12px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; user-select: none; gap: 6px; }
-  .ward-chip:hover { background: rgba(255,255,255,0.07); color: var(--text); }
-  .ward-chip.selected { background: rgba(79,142,247,0.12); border-color: rgba(79,142,247,0.35); color: var(--text); }
-  .ward-chip-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ward-chip-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); flex-shrink: 0; }
-  .ward-solo-btn { flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); font-size: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, border-color 0.12s, color 0.12s; line-height: 1; padding: 0; font-family: 'DM Mono', monospace; }
-  .ward-solo-btn:hover { background: rgba(79,142,247,0.25); border-color: var(--accent); color: var(--accent); }
-  .ward-solo-btn:active { background: rgba(79,142,247,0.4); }
-
-  #loading { position: absolute; inset: 0; background: rgba(15,17,23,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px); }
-  #loading.hidden { display: none; }
-  .spinner { width: 36px; height: 36px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 14px; }
-  #loading p { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
-
-  #error-banner { display: none; position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: #3a1a1a; border: 1px solid #7a2a2a; color: #f09090; font-size: 12px; padding: 10px 16px; border-radius: 6px; z-index: 9998; max-width: 420px; text-align: center; }
-
-  .leaflet-container { background: #1a1f2e; }
-  .leaflet-tile { filter: brightness(0.7) saturate(0.6); }
-  .leaflet-control-zoom a { background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important; }
-  .leaflet-control-zoom a:hover { background: var(--border) !important; }
-  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-  .leaflet-popup-tip { background: var(--panel); }
-  .leaflet-popup-content { font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.6; margin: 12px 14px; }
-  .popup-street { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
-  .popup-ward { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-  .popup-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-  .popup-status { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em; font-weight: 500; }
-  .ps-complete   { background: rgba(62,207,110,0.15);  color: var(--green); }
-  .ps-inprogress { background: rgba(245,200,66,0.15);  color: var(--yellow); }
-  .ps-planned    { background: rgba(79,142,247,0.15);  color: var(--blue); }
-  .ps-notstarted { background: rgba(247,95,95,0.15);   color: var(--red); }
-  .popup-residences { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--purple); background: rgba(167,139,250,0.1); border-radius: 20px; padding: 2px 10px; white-space: nowrap; }
-
-  .popup-status-btn { cursor: pointer; border: none; background: none; padding: 0; font: inherit; display: inline-block; transition: filter 0.15s, transform 0.1s; }
-  .popup-status-btn:hover { filter: brightness(1.3); transform: scale(1.04); }
-  .popup-status-btn::after { content: ' ✎'; font-size: 9px; opacity: 0.55; vertical-align: middle; }
-  .popup-edit-area { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-  .popup-auth-msg { font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.4; }
-  .popup-auth-msg.error   { color: var(--red); }
-  .popup-auth-msg.success { color: var(--green); }
-  .popup-signin-btn { display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s; width: 100%; justify-content: center; }
-  .popup-signin-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--muted); }
-  .popup-signin-btn svg { flex-shrink: 0; }
-  .popup-status-select { display: flex; flex-direction: column; gap: 5px; }
-  .popup-status-option { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-size: 12px; font-family: 'DM Mono', monospace; cursor: pointer; transition: background 0.12s, border-color 0.12s; text-align: left; width: 100%; }
-  .popup-status-option:hover { background: rgba(255,255,255,0.09); border-color: var(--muted); }
-  .popup-status-option.current { opacity: 0.4; cursor: default; pointer-events: none; }
-  .popup-status-option.opt-complete   { border-left: 3px solid var(--green); }
-  .popup-status-option.opt-inprogress { border-left: 3px solid var(--yellow); }
-  .popup-status-option.opt-planned    { border-left: 3px solid var(--blue); }
-  .popup-status-option.opt-notstarted { border-left: 3px solid var(--red); }
-  .popup-saving { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; text-align: center; padding: 4px 0; }
-  .popup-user-line { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
-  .popup-signout-link { color: var(--muted); font-size: 10px; cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-family: 'DM Mono', monospace; }
-  .popup-signout-link:hover { color: var(--text); }
-
-  #sidebar-toggle { display: none; position: absolute; top: 12px; left: 12px; z-index: 1001; background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 18px; cursor: pointer; }
-  @media (max-width: 640px) {
-    #sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform 0.25s; }
-    #sidebar.open { transform: translateX(0); }
-    #sidebar-toggle { display: block; }
+  html,body { height:100%; font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); overflow:hidden; }
+  #app { display:flex; height:100vh; }
+  #sidebar { width:var(--panel-w); min-width:var(--panel-w); background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; z-index:1000; overflow:hidden; }
+  #map-wrap { flex:1; position:relative; }
+  #map { width:100%; height:100%; }
+  .sidebar-head { padding:20px 20px 14px; border-bottom:1px solid var(--border); }
+  .sidebar-head h1 { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent); margin-bottom:4px; }
+  .sidebar-head p { font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:10px; }
+  #sync-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; border-radius:6px; background:rgba(255,255,255,0.03); border:1px solid var(--border); cursor:pointer; transition:background 0.15s,border-color 0.15s; user-select:none; }
+  #sync-bar:hover { background:rgba(255,255,255,0.07); border-color:var(--muted); }
+  #sync-left { display:flex; align-items:center; gap:7px; min-width:0; }
+  #sync-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:var(--muted); transition:background 0.3s,box-shadow 0.3s; }
+  #sync-dot.fresh    { background:var(--green);  box-shadow:0 0 5px var(--green); }
+  #sync-dot.stale    { background:var(--yellow); box-shadow:0 0 5px var(--yellow); }
+  #sync-dot.error    { background:var(--red);    box-shadow:0 0 5px var(--red); }
+  #sync-dot.checking { background:var(--accent); box-shadow:0 0 5px var(--accent); animation:pulse-dot 0.8s ease-in-out infinite alternate; }
+  @keyframes pulse-dot { from{opacity:1} to{opacity:0.3} }
+  #sync-text { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #sync-icon { font-size:13px; color:var(--muted); flex-shrink:0; }
+  #sync-icon.spinning { animation:spin 0.7s linear infinite; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  #stats { display:flex; flex-direction:column; border-bottom:1px solid var(--border); }
+  #stats-top { display:flex; }
+  #stats-bottom { border-top:1px solid var(--border); padding:8px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .stat { flex:1; padding:10px 8px; text-align:center; border-right:1px solid var(--border); }
+  .stat:last-child { border-right:none; }
+  .stat-num { font-family:'DM Mono',monospace; font-size:16px; font-weight:500; line-height:1; }
+  .stat-label { font-size:10px; letter-spacing:0.06em; text-transform:uppercase; color:var(--muted); margin-top:3px; }
+  .stat-num.green  { color:var(--green); }
+  .stat-num.yellow { color:var(--yellow); }
+  .stat-num.blue   { color:var(--blue); }
+  .stat-num.red    { color:var(--red); }
+  .stat-num.purple { color:var(--purple); }
+  .res-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); }
+  .res-value { font-family:'DM Mono',monospace; font-size:16px; font-weight:500; color:var(--purple); }
+  .res-sub   { font-size:10px; color:var(--muted); }
+  .sidebar-scroll { flex:1; overflow-y:auto; padding:16px 20px 20px; }
+  .sidebar-scroll::-webkit-scrollbar { width:4px; }
+  .sidebar-scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .filter-section { margin-bottom:20px; }
+  .filter-label { font-family:'DM Mono',monospace; font-size:10px; font-weight:500; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+  .status-toggles { display:flex; flex-direction:column; gap:6px; }
+  .status-toggle { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text); cursor:pointer; font-family:'DM Sans',sans-serif; font-size:13px; transition:background 0.15s,border-color 0.15s,opacity 0.15s; text-align:left; width:100%; }
+  .status-toggle:hover { background:rgba(255,255,255,0.04); }
+  .status-toggle.active { border-color:transparent; }
+  .status-toggle.inactive { opacity:0.35; }
+  .status-toggle.active.s-complete   { background:rgba(62,207,110,0.12);  border-color:rgba(62,207,110,0.35); }
+  .status-toggle.active.s-inprogress { background:rgba(245,200,66,0.12);  border-color:rgba(245,200,66,0.35); }
+  .status-toggle.active.s-planned    { background:rgba(79,142,247,0.12);  border-color:rgba(79,142,247,0.35); }
+  .status-toggle.active.s-notstarted { background:rgba(247,95,95,0.12);   border-color:rgba(247,95,95,0.35); }
+  .status-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .dot-green  { background:var(--green);  box-shadow:0 0 6px var(--green); }
+  .dot-yellow { background:var(--yellow); box-shadow:0 0 6px var(--yellow); }
+  .dot-blue   { background:var(--blue);   box-shadow:0 0 6px var(--blue); }
+  .dot-red    { background:var(--red);    box-shadow:0 0 6px var(--red); }
+  .toggle-count { margin-left:auto; font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); }
+  .road-search-wrap { position:relative; margin-bottom:0; }
+  .road-search-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px; padding:7px 32px 7px 10px; outline:none; transition:border-color 0.15s; }
+  .road-search-input:focus { border-color:var(--accent); }
+  .road-search-input::placeholder { color:var(--muted); }
+  .road-search-clear { position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); font-size:14px; cursor:pointer; display:none; line-height:1; padding:2px 4px; }
+  .road-search-clear:hover { color:var(--text); }
+  .road-dropdown { position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,0.45); z-index:2000; max-height:220px; overflow-y:auto; display:none; }
+  .road-dropdown.open { display:block; }
+  .road-dropdown::-webkit-scrollbar { width:4px; }
+  .road-dropdown::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .road-option { padding:8px 12px; cursor:pointer; font-size:12px; border-bottom:1px solid rgba(255,255,255,0.04); transition:background 0.1s; background:rgba(79,142,247,0.07); }
+  .road-option.out-of-ward { background:rgba(0,0,0,0.35); }
+  .road-option:last-child { border-bottom:none; }
+  .road-option:hover,.road-option.focused { background:rgba(79,142,247,0.22) !important; color:var(--text); }
+  .road-option-name { font-weight:500; color:var(--text); }
+  .road-option-meta { font-size:10px; margin-top:1px; font-family:'DM Mono',monospace; }
+  .road-option-ward-in  { color:#7ab8f5; }
+  .road-option-ward-out { color:var(--muted); opacity:0.65; }
+  .road-no-results { padding:10px 12px; font-size:12px; color:var(--muted); font-family:'DM Mono',monospace; text-align:center; }
+  .ward-search { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px; padding:7px 10px; margin-bottom:8px; outline:none; transition:border-color 0.15s; }
+  .ward-search:focus { border-color:var(--accent); }
+  .ward-search::placeholder { color:var(--muted); }
+  .ward-all-btn { width:100%; padding:6px 10px; margin-bottom:8px; background:transparent; border:1px dashed var(--border); border-radius:6px; color:var(--muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
+  .ward-all-btn:hover { color:var(--text); border-color:var(--muted); }
+  .ward-list { display:flex; flex-direction:column; gap:3px; }
+  .ward-chip { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-radius:5px; border:1px solid transparent; background:rgba(255,255,255,0.03); color:var(--muted); font-size:12px; cursor:pointer; transition:background 0.12s,color 0.12s,border-color 0.12s; user-select:none; gap:6px; }
+  .ward-chip:hover { background:rgba(255,255,255,0.07); color:var(--text); }
+  .ward-chip.selected { background:rgba(79,142,247,0.12); border-color:rgba(79,142,247,0.35); color:var(--text); }
+  .ward-chip-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ward-chip-count { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); flex-shrink:0; }
+  .ward-solo-btn { flex-shrink:0; width:18px; height:18px; border-radius:3px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--muted); font-size:9px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.12s,border-color 0.12s,color 0.12s; line-height:1; padding:0; font-family:'DM Mono',monospace; }
+  .ward-solo-btn:hover { background:rgba(79,142,247,0.25); border-color:var(--accent); color:var(--accent); }
+  #loading { position:absolute; inset:0; background:rgba(15,17,23,0.85); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; backdrop-filter:blur(4px); }
+  #loading.hidden { display:none; }
+  .spinner { width:36px; height:36px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:14px; }
+  #loading p { font-family:'DM Mono',monospace; font-size:12px; color:var(--muted); }
+  #error-banner { display:none; position:absolute; top:12px; left:50%; transform:translateX(-50%); background:#3a1a1a; border:1px solid #7a2a2a; color:#f09090; font-size:12px; padding:10px 16px; border-radius:6px; z-index:9998; max-width:420px; text-align:center; }
+  .leaflet-container { background:#1a1f2e; }
+  .leaflet-tile { filter:brightness(0.7) saturate(0.6); }
+  .leaflet-control-zoom a { background:var(--panel) !important; color:var(--text) !important; border-color:var(--border) !important; }
+  .leaflet-control-zoom a:hover { background:var(--border) !important; }
+  .leaflet-popup-content-wrapper { background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
+  .leaflet-popup-tip { background:var(--panel); }
+  .leaflet-popup-content { font-family:'DM Sans',sans-serif; font-size:13px; line-height:1.6; margin:12px 14px; }
+  .popup-street { font-weight:700; font-size:14px; margin-bottom:2px; }
+  .popup-ward { color:var(--muted); font-size:12px; margin-bottom:6px; }
+  .popup-meta { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .popup-status { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-family:'DM Mono',monospace; letter-spacing:0.06em; font-weight:500; }
+  .ps-complete   { background:rgba(62,207,110,0.15);  color:var(--green); }
+  .ps-inprogress { background:rgba(245,200,66,0.15);  color:var(--yellow); }
+  .ps-planned    { background:rgba(79,142,247,0.15);  color:var(--blue); }
+  .ps-notstarted { background:rgba(247,95,95,0.15);   color:var(--red); }
+  .popup-residences { font-family:'DM Mono',monospace; font-size:11px; color:var(--purple); background:rgba(167,139,250,0.1); border-radius:20px; padding:2px 10px; white-space:nowrap; }
+  .popup-status-btn { cursor:pointer; border:none; background:none; padding:0; font:inherit; display:inline-block; transition:filter 0.15s,transform 0.1s; }
+  .popup-status-btn:hover { filter:brightness(1.3); transform:scale(1.04); }
+  .popup-status-btn::after { content:' ✎'; font-size:9px; opacity:0.55; vertical-align:middle; }
+  .popup-edit-area { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
+  .popup-auth-msg { font-size:11px; color:var(--muted); margin-bottom:8px; line-height:1.4; }
+  .popup-auth-msg.error   { color:var(--red); }
+  .popup-auth-msg.success { color:var(--green); }
+  .popup-signin-btn { display:flex; align-items:center; gap:7px; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:rgba(255,255,255,0.05); color:var(--text); font-family:'DM Sans',sans-serif; font-size:12px; cursor:pointer; transition:background 0.15s,border-color 0.15s; width:100%; justify-content:center; }
+  .popup-signin-btn:hover { background:rgba(255,255,255,0.1); border-color:var(--muted); }
+  .popup-status-select { display:flex; flex-direction:column; gap:5px; }
+  .popup-status-option { padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:rgba(255,255,255,0.03); color:var(--text); font-size:12px; font-family:'DM Mono',monospace; cursor:pointer; transition:background 0.12s,border-color 0.12s; text-align:left; width:100%; }
+  .popup-status-option:hover { background:rgba(255,255,255,0.09); border-color:var(--muted); }
+  .popup-status-option.current { opacity:0.4; cursor:default; pointer-events:none; }
+  .popup-status-option.opt-complete   { border-left:3px solid var(--green); }
+  .popup-status-option.opt-inprogress { border-left:3px solid var(--yellow); }
+  .popup-status-option.opt-planned    { border-left:3px solid var(--blue); }
+  .popup-status-option.opt-notstarted { border-left:3px solid var(--red); }
+  .popup-saving { font-size:11px; color:var(--muted); font-family:'DM Mono',monospace; text-align:center; padding:4px 0; }
+  .popup-user-line { font-size:10px; color:var(--muted); font-family:'DM Mono',monospace; margin-bottom:8px; display:flex; flex-direction:column; gap:4px; }
+  .popup-signout-link { color:var(--muted); font-size:10px; cursor:pointer; text-decoration:underline; background:none; border:none; padding:0; font-family:'DM Mono',monospace; }
+  .popup-signout-link:hover { color:var(--text); }
+  /* ── Partial geometry editor ── */
+  .popup-partial-btn { display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; border:1px solid var(--darkgreen); background:rgba(30,126,74,0.1); color:#4ecb82; font-family:'DM Mono',monospace; font-size:11px; cursor:pointer; transition:background 0.15s; width:100%; margin-top:6px; }
+  .popup-partial-btn:hover { background:rgba(30,126,74,0.22); }
+  .popup-partial-btn.has-data { border-color:var(--darkgreen); background:rgba(30,126,74,0.18); }
+  .popup-partial-section { margin-top:8px; padding:10px; border-radius:6px; background:rgba(30,126,74,0.07); border:1px solid rgba(30,126,74,0.25); }
+  .popup-partial-hint { font-size:11px; color:var(--muted); line-height:1.5; margin-bottom:8px; }
+  .popup-partial-hint strong { color:var(--text); }
+  .popup-partial-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .popup-partial-action-btn { padding:5px 10px; border-radius:5px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text); font-family:'DM Mono',monospace; font-size:11px; cursor:pointer; transition:background 0.12s,border-color 0.12s; }
+  .popup-partial-action-btn:hover { background:rgba(255,255,255,0.09); border-color:var(--muted); }
+  .popup-partial-action-btn.active { background:rgba(30,126,74,0.25); border-color:var(--darkgreen); color:#4ecb82; }
+  .popup-partial-action-btn.danger { border-color:rgba(247,95,95,0.4); color:var(--red); }
+  .popup-partial-action-btn.danger:hover { background:rgba(247,95,95,0.1); }
+  .popup-partial-status { font-size:10px; color:var(--muted); font-family:'DM Mono',monospace; margin-top:6px; }
+  /* Drawing mode overlay hint */
+  #draw-hint { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:rgba(15,17,23,0.92); border:1px solid var(--darkgreen); color:#4ecb82; font-family:'DM Mono',monospace; font-size:12px; padding:10px 18px; border-radius:8px; z-index:2000; pointer-events:none; text-align:center; display:none; white-space:nowrap; }
+  #draw-hint.visible { display:block; }
+  /* Draw mode cursor */
+  #map.draw-mode { cursor:crosshair !important; }
+  #map.draw-mode .leaflet-interactive { cursor:crosshair !important; }
+  #sidebar-toggle { display:none; position:absolute; top:12px; left:12px; z-index:1001; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:6px; font-size:18px; cursor:pointer; }
+  @media (max-width:640px) {
+    #sidebar { position:absolute; left:0; top:0; bottom:0; transform:translateX(-100%); transition:transform 0.25s; }
+    #sidebar.open { transform:translateX(0); }
+    #sidebar-toggle { display:block; }
   }
-
-  #cookie-banner {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: var(--panel); border-top: 1px solid var(--border);
-    padding: 14px 20px; z-index: 99999;
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    font-size: 12px; color: var(--muted); line-height: 1.5;
-  }
-  #cookie-banner.hidden { display: none; }
-  #cookie-banner p { flex: 1; min-width: 200px; }
-  #cookie-banner a { color: var(--accent); text-decoration: underline; cursor: pointer; }
-  .cookie-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.15s, border-color 0.15s; }
-  .cookie-btn-accept { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .cookie-btn-accept:hover { background: #6ba3ff; }
-  .cookie-btn-decline { background: transparent; color: var(--muted); }
-  .cookie-btn-decline:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+  #cookie-banner { position:fixed; bottom:0; left:0; right:0; background:var(--panel); border-top:1px solid var(--border); padding:14px 20px; z-index:99999; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); line-height:1.5; }
+  #cookie-banner.hidden { display:none; }
+  #cookie-banner p { flex:1; min-width:200px; }
+  #cookie-banner a { color:var(--accent); text-decoration:underline; cursor:pointer; }
+  .cookie-btn { padding:6px 14px; border-radius:6px; border:1px solid var(--border); font-size:12px; cursor:pointer; font-family:'DM Sans',sans-serif; transition:background 0.15s,border-color 0.15s; }
+  .cookie-btn-accept { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .cookie-btn-accept:hover { background:#6ba3ff; }
+  .cookie-btn-decline { background:transparent; color:var(--muted); }
+  .cookie-btn-decline:hover { background:rgba(255,255,255,0.06); color:var(--text); }
 </style>
 </head>
 <body>
-
 <div id="app">
   <aside id="sidebar">
     <div class="sidebar-head">
       <h1>Leafleting Map</h1>
       <p>Filter roads by ward or completion status.</p>
       <div id="sync-bar" title="Click to check for updates now" onclick="manualRefresh()">
-        <div id="sync-left">
-          <div id="sync-dot"></div>
-          <span id="sync-text">Loading…</span>
-        </div>
+        <div id="sync-left"><div id="sync-dot"></div><span id="sync-text">Loading…</span></div>
         <span id="sync-icon">↻</span>
       </div>
     </div>
-
     <div id="stats">
       <div id="stats-top">
-        <div class="stat">
-          <div class="stat-num green"  id="stat-complete">0</div>
-          <div class="stat-label">Complete</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num yellow" id="stat-inprogress">0</div>
-          <div class="stat-label">In Progress</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num blue"   id="stat-planned">0</div>
-          <div class="stat-label">Planned</div>
-        </div>
-        <div class="stat">
-          <div class="stat-num red"    id="stat-notstarted">0</div>
-          <div class="stat-label">Not Started</div>
-        </div>
+        <div class="stat"><div class="stat-num green"  id="stat-complete">0</div><div class="stat-label">Complete</div></div>
+        <div class="stat"><div class="stat-num yellow" id="stat-inprogress">0</div><div class="stat-label">In Progress</div></div>
+        <div class="stat"><div class="stat-num blue"   id="stat-planned">0</div><div class="stat-label">Planned</div></div>
+        <div class="stat"><div class="stat-num red"    id="stat-notstarted">0</div><div class="stat-label">Not Started</div></div>
       </div>
       <div id="stats-bottom">
-        <span class="res-label">🏠 Residences served</span>
-        <span>
-          <span class="res-value" id="stat-residences">0</span>
-          <span class="res-sub" id="stat-residences-pct"></span>
-        </span>
+        <span class="res-label">🏠 Est. Residences served</span>
+        <span><span class="res-value" id="stat-residences">…</span><span class="res-sub" id="stat-residences-pct"></span></span>
       </div>
     </div>
-
     <div class="sidebar-scroll">
       <div class="filter-section">
         <div class="filter-label">Status</div>
         <div class="status-toggles">
-          <button class="status-toggle active s-complete"   data-status="complete"   onclick="toggleStatus(this)">
-            <span class="status-dot dot-green"></span>  Complete
-            <span class="toggle-count" id="cnt-complete">0</span>
-          </button>
-          <button class="status-toggle active s-inprogress" data-status="inprogress" onclick="toggleStatus(this)">
-            <span class="status-dot dot-yellow"></span> In Progress
-            <span class="toggle-count" id="cnt-inprogress">0</span>
-          </button>
-          <button class="status-toggle active s-planned"    data-status="planned"    onclick="toggleStatus(this)">
-            <span class="status-dot dot-blue"></span>   Planned
-            <span class="toggle-count" id="cnt-planned">0</span>
-          </button>
-          <button class="status-toggle active s-notstarted" data-status="notstarted" onclick="toggleStatus(this)">
-            <span class="status-dot dot-red"></span>    Not Started
-            <span class="toggle-count" id="cnt-notstarted">0</span>
-          </button>
+          <button class="status-toggle active s-complete"   data-status="complete"   onclick="toggleStatus(this)"><span class="status-dot dot-green"></span>Complete<span class="toggle-count" id="cnt-complete">0</span></button>
+          <button class="status-toggle active s-inprogress" data-status="inprogress" onclick="toggleStatus(this)"><span class="status-dot dot-yellow"></span>In Progress<span class="toggle-count" id="cnt-inprogress">0</span></button>
+          <button class="status-toggle active s-planned"    data-status="planned"    onclick="toggleStatus(this)"><span class="status-dot dot-blue"></span>Planned<span class="toggle-count" id="cnt-planned">0</span></button>
+          <button class="status-toggle active s-notstarted" data-status="notstarted" onclick="toggleStatus(this)"><span class="status-dot dot-red"></span>Not Started<span class="toggle-count" id="cnt-notstarted">0</span></button>
         </div>
       </div>
-
       <div class="filter-section">
         <div class="filter-label">Road Search</div>
         <div class="road-search-wrap">
-          <input class="road-search-input" id="road-search-input" type="text"
-            placeholder="Search roads…"
-            autocomplete="off"
-            oninput="onRoadSearchInput(this.value)"
-            onkeydown="onRoadSearchKey(event)"
-            onfocus="onRoadSearchInput(this.value)">
+          <input class="road-search-input" id="road-search-input" type="text" placeholder="Search roads…" autocomplete="off"
+            oninput="onRoadSearchInput(this.value)" onkeydown="onRoadSearchKey(event)" onfocus="onRoadSearchInput(this.value)">
           <button class="road-search-clear" id="road-search-clear" onclick="clearRoadSearch()" title="Clear">✕</button>
           <div class="road-dropdown" id="road-dropdown"></div>
         </div>
       </div>
-
       <div class="filter-section">
         <div class="filter-label">Ward</div>
         <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
@@ -290,26 +231,23 @@
       </div>
     </div>
   </aside>
-
   <div id="map-wrap">
     <button id="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
     <div id="map"></div>
+    <div id="draw-hint"></div>
     <div id="loading"><div class="spinner"></div><p id="loading-msg">Loading road data…</p></div>
     <div id="error-banner"></div>
   </div>
 </div>
-
 <div id="cookie-banner" class="hidden">
-  <p>
-    This site can store a cookie to remember your Google sign-in between visits, saving you from having to log in each time.
-    <a onclick="showCookiePolicy()">What we store &amp; why →</a>
-  </p>
-  <button class="cookie-btn cookie-btn-decline" onclick="cookieDecline()">Decline (log in each time)</button>
+  <p>This site can store a cookie to remember your Google sign-in between visits. <a onclick="showCookiePolicy()">What we store &amp; why →</a></p>
+  <button class="cookie-btn cookie-btn-decline" onclick="cookieDecline()">Decline</button>
   <button class="cookie-btn cookie-btn-accept"  onclick="cookieAccept()">Accept &amp; remember me</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <script>
@@ -317,49 +255,49 @@
 const SHEET_ID  = "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q";
 const SHEET_GID = "2107159853";
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SHEET_GID}&single=true&output=csv`;
-// No separate checksum cell — we hash the full CSV so any cell change is detected.
+const CHECKSUM_GID  = "1371223354";
+const CHECKSUM_URL  = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${CHECKSUM_GID}&single=true&output=csv`;
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 const GOOGLE_CLIENT_ID = "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com";
-const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbx-Mv_HAI0Q9oqIdfu4CoHMQCm0QQJR0Tdz5X0xyCNmBN3w8IgZ9f1p1jzJF0so0pT6/exec";
-
-const LS_DATA     = "leafmap_data_v2"; // bumped to bust stale cache
-const LS_CHECKSUM = "leafmap_checksum_v2";
+const APPS_SCRIPT_URL  = "https://script.google.com/macros/s/AKfycbyeyfwzYRVEUPse35hzVyPJAtOBut7swG4YlGA0hu1qQQACijzJoiZ6O2uMfmJGnJg4/exec";
+const PARTIAL_ZOOM_THRESHOLD = 14; // partial overlays hidden below this zoom level
+const LS_DATA     = "leafmap_data_v3"; // bumped — new partial_geometry column
+const LS_CHECKSUM = "leafmap_checksum_v3";
 const LS_TIME     = "leafmap_time";
 const LS_AUTH     = "leafmap_auth_v1";
 const LS_COOKIE   = "leafmap_cookie_consent";
 
 // ── Status definitions ────────────────────────────────────────────────────────
 const STATUSES = [
-  { key: "complete",   sheetValue: "Complete",    label: "Complete",    cls: "opt-complete",   popupCls: "ps-complete",   colour: "#3ecf6e", weight: 5 },
-  { key: "inprogress", sheetValue: "In_Progress", label: "In Progress", cls: "opt-inprogress", popupCls: "ps-inprogress", colour: "#f5c842", weight: 5 },
-  { key: "planned",    sheetValue: "Planned",     label: "Planned",     cls: "opt-planned",    popupCls: "ps-planned",    colour: "#4f8ef7", weight: 4 },
-  { key: "notstarted", sheetValue: "Not_Started", label: "Not Started", cls: "opt-notstarted", popupCls: "ps-notstarted", colour: "#f75f5f", weight: 4 },
+  { key:"complete",   sheetValue:"Complete",    label:"Complete",    cls:"opt-complete",   popupCls:"ps-complete",   colour:"#3ecf6e", weight:5 },
+  { key:"inprogress", sheetValue:"In_Progress", label:"In Progress", cls:"opt-inprogress", popupCls:"ps-inprogress", colour:"#f5c842", weight:5 },
+  { key:"planned",    sheetValue:"Planned",     label:"Planned",     cls:"opt-planned",    popupCls:"ps-planned",    colour:"#4f8ef7", weight:4 },
+  { key:"notstarted", sheetValue:"Not_Started", label:"Not Started", cls:"opt-notstarted", popupCls:"ps-notstarted", colour:"#f75f5f", weight:4 },
 ];
-
-function getStatus(sheetValue) {
-  const norm = (sheetValue || "").trim().toLowerCase().replace(/[\s_]+/g, "");
-  return STATUSES.find(s => s.sheetValue.toLowerCase().replace(/_/g, "") === norm) || STATUSES[3];
+function getStatus(v) {
+  const norm = (v||"").trim().toLowerCase().replace(/[\s_]+/g,"");
+  return STATUSES.find(s=>s.sheetValue.toLowerCase().replace(/_/g,"")===norm)||STATUSES[3];
 }
 function statusKey(v)  { return getStatus(v).key; }
 function colourFor(v)  { return getStatus(v).colour; }
 function weightFor(v)  { return getStatus(v).weight; }
 
 // ── Map ───────────────────────────────────────────────────────────────────────
-const map = L.map("map", { zoomControl: true }).setView([52.8, -2.12], 12);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-  maxZoom: 19
+const map = L.map("map",{zoomControl:true}).setView([52.8,-2.12],12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom:19
 }).addTo(map);
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allRoads     = [];
 let layerGroups  = {};
-let activeStatus = new Set(STATUSES.map(s => s.key));
+let partialLayerGroup = L.layerGroup().addTo(map); // separate group, always on top
+let activeStatus = new Set(STATUSES.map(s=>s.key));
 let activeWards  = new Set();
 let wardCounts   = {};
-let layerIndex   = {};
-let lastChecksum     = null;
-let lastLoadTime     = null;
+let lastChecksum          = null;
+let lastLoadTime          = null;
+let residencesServedTotal = null;
 let pollTimer        = null;
 let isChecking       = false;
 let selectedRoadName = null;
@@ -368,83 +306,318 @@ let authTokenType  = "idToken";
 let authEmail      = null;
 let authExpiry     = 0;
 let authAuthorised = false;
+let renderedLayers = new Map();  // segKey → {layers, spec, ward}
+let partialLayers  = new Map();  // rowIdx → [L.layer, ...]
+
+// ── Drawing state ─────────────────────────────────────────────────────────────
+// drawState machine: null | 'place-start' | 'place-end' | 'adjust'
+let drawState      = null;
+let drawRoad       = null;   // the road row being edited
+let drawSegPts     = [];     // flat array of all [lat,lon] points for this road (all segments)
+let drawSegBreaks  = [];     // indices where new segments begin (for per-seg attribution)
+let drawStartProp  = null;   // proportion along total length (0-1)
+let drawEndProp    = null;
+let drawBothSides  = false;  // toggle: false=single side, true=both
+let drawPreviewLayers = [];  // temp map layers for live preview
+let drawHandleStart = null;  // L.circleMarker
+let drawHandleEnd   = null;
+let drawActiveHandle = null; // 'start'|'end' — which handle is currently being moved
+let drawFlipped    = false;  // whether the offset side has been flipped
+let drawRoadHighlightLayers = []; // highlight of the selected road during drawing
 
 // ── Cookie consent ────────────────────────────────────────────────────────────
 function cookieConsent() { return localStorage.getItem(LS_COOKIE); }
-function showCookieBanner() { if (!cookieConsent()) document.getElementById("cookie-banner").classList.remove("hidden"); }
-function cookieAccept() { localStorage.setItem(LS_COOKIE, "accepted"); document.getElementById("cookie-banner").classList.add("hidden"); persistAuthSession(); }
-function cookieDecline() { localStorage.setItem(LS_COOKIE, "declined"); document.getElementById("cookie-banner").classList.add("hidden"); localStorage.removeItem(LS_AUTH); }
-function showCookiePolicy() { alert("Cookie / local storage policy\n\nIf you accept, we store a small token in your browser's local storage (similar to a cookie) that remembers your Google sign-in for up to 55 minutes so you do not have to log in again on your next visit.\n\nWe also store a local copy of the road data so the map loads instantly and we only download fresh data from Google Sheets when something has actually changed.\n\nNo personal data is shared with third parties. You can clear this at any time by declining below or clearing your browser's site data."); }
+function showCookieBanner() { if(!cookieConsent()) document.getElementById("cookie-banner").classList.remove("hidden"); }
+function cookieAccept() { localStorage.setItem(LS_COOKIE,"accepted"); document.getElementById("cookie-banner").classList.add("hidden"); persistAuthSession(); }
+function cookieDecline() { localStorage.setItem(LS_COOKIE,"declined"); document.getElementById("cookie-banner").classList.add("hidden"); localStorage.removeItem(LS_AUTH); }
+function showCookiePolicy() { alert("Cookie / local storage policy\n\nWe store a small token remembering your Google sign-in for up to 55 minutes, and a local cache of road data for instant loads. No personal data is shared with third parties."); }
 
 // ── Auth persistence ──────────────────────────────────────────────────────────
 function persistAuthSession() {
-  if (cookieConsent() !== "accepted") return;
-  if (!authToken || !authEmail || !authAuthorised) return;
-  try { localStorage.setItem(LS_AUTH, JSON.stringify({ token: authToken, tokenType: authTokenType, email: authEmail, expiry: authExpiry, authorised: authAuthorised })); } catch(e) {}
+  if(cookieConsent()!=="accepted"||!authToken||!authEmail||!authAuthorised) return;
+  try { localStorage.setItem(LS_AUTH,JSON.stringify({token:authToken,tokenType:authTokenType,email:authEmail,expiry:authExpiry,authorised:authAuthorised})); } catch(e){}
 }
 function restoreAuthSession() {
-  if (cookieConsent() !== "accepted") return;
+  if(cookieConsent()!=="accepted") return;
   try {
-    const raw = localStorage.getItem(LS_AUTH);
-    if (!raw) return;
-    const s = JSON.parse(raw);
-    if (!s.token || Date.now() >= s.expiry - 30_000) { localStorage.removeItem(LS_AUTH); return; }
-    authToken = s.token; authTokenType = s.tokenType || "idToken";
-    authEmail = s.email; authExpiry = s.expiry; authAuthorised = s.authorised;
-  } catch(e) { localStorage.removeItem(LS_AUTH); }
+    const raw=localStorage.getItem(LS_AUTH); if(!raw) return;
+    const s=JSON.parse(raw);
+    if(!s.token||Date.now()>=s.expiry-30_000){localStorage.removeItem(LS_AUTH);return;}
+    authToken=s.token; authTokenType=s.tokenType||"idToken"; authEmail=s.email; authExpiry=s.expiry; authAuthorised=s.authorised;
+  } catch(e){localStorage.removeItem(LS_AUTH);}
 }
 
 // ── Sync UI ───────────────────────────────────────────────────────────────────
-function setSyncState(state, text) {
-  const dot  = document.getElementById("sync-dot");
-  const txt  = document.getElementById("sync-text");
-  const icon = document.getElementById("sync-icon");
-  dot.className = "";
-  icon.classList.remove("spinning");
-  dot.classList.add(state);
-  txt.textContent = text;
-  if (state === "checking") icon.classList.add("spinning");
+function setSyncState(state,text) {
+  const dot=document.getElementById("sync-dot"),txt=document.getElementById("sync-text"),icon=document.getElementById("sync-icon");
+  dot.className=""; icon.classList.remove("spinning"); dot.classList.add(state); txt.textContent=text;
+  if(state==="checking") icon.classList.add("spinning");
 }
-function formatTime(d) { return d ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "never"; }
+function formatTime(d) { return d?d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"never"; }
 
-// ── WKT parser ────────────────────────────────────────────────────────────────
+// ── WKT / geometry helpers ────────────────────────────────────────────────────
 function parseWKT(wkt) {
-  if (!wkt || wkt === "NOT_FOUND") return [];
-  return wkt.split("|").map(seg => {
-    seg = seg.trim();
-    if (!seg.startsWith("LINESTRING(")) return null;
-    return seg.slice(11, -1).split(",").map(pair => {
-      const [lon, lat] = pair.trim().split(" ").map(Number);
-      return isNaN(lat) ? null : [lat, lon];
+  if(!wkt||wkt==="-"||wkt==="NOT_FOUND"||!wkt.includes("LINESTRING")) return [];
+  return wkt.split("|").map(seg=>{
+    seg=seg.trim();
+    if(!seg.startsWith("LINESTRING(")) return null;
+    return seg.slice(11,-1).split(",").map(pair=>{
+      const [lon,lat]=pair.trim().split(" ").map(Number);
+      return isNaN(lat)?null:[lat,lon];
     }).filter(Boolean);
-  }).filter(a => a && a.length >= 2);
+  }).filter(a=>a&&a.length>=2);
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function escHtml(s) {
-  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+// Convert [lat,lon] array to turf GeoJSON point
+function turfPt(latlng) { return turf.point([latlng[1],latlng[0]]); }
+
+// Compute cumulative length array for a list of [lat,lon] pts (in metres)
+function cumulativeLengths(pts) {
+  const lens=[0];
+  for(let i=1;i<pts.length;i++) {
+    const d=turf.distance(turfPt(pts[i-1]),turfPt(pts[i]),{units:"meters"});
+    lens.push(lens[i-1]+d);
+  }
+  return lens;
 }
 
+// Interpolate a point at proportion t (0-1) along pts
+function interpolateAlongPts(pts,cumLens,t) {
+  const total=cumLens[cumLens.length-1];
+  if(total===0) return pts[0];
+  const target=t*total;
+  for(let i=1;i<cumLens.length;i++) {
+    if(cumLens[i]>=target||i===cumLens.length-1) {
+      const segStart=cumLens[i-1], segEnd=cumLens[i];
+      const frac=segEnd===segStart?0:(target-segStart)/(segEnd-segStart);
+      const a=pts[i-1], b=pts[i];
+      return [a[0]+(b[0]-a[0])*frac, a[1]+(b[1]-a[1])*frac];
+    }
+  }
+  return pts[pts.length-1];
+}
+
+// Snap a latlng click to the nearest point on the road's combined geometry
+// Returns { prop: 0-1, latlng: [lat,lon] }
+function snapToRoad(clickLatLng, pts, cumLens) {
+  // Snap a map click to the nearest point on the road polyline.
+  // Returns { prop: 0-1 along total road length, latlng: [lat,lon] }
+  const total=cumLens[cumLens.length-1];
+  if(total===0) return {prop:0,latlng:pts[0]};
+  let bestDist=Infinity, bestProp=0, bestPt=pts[0];
+  const click=turfPt([clickLatLng.lat,clickLatLng.lng]);
+  for(let i=1;i<pts.length;i++) {
+    const a=[pts[i-1][1],pts[i-1][0]]; // [lon,lat] for turf
+    const b=[pts[i][1],pts[i][0]];
+    const line=turf.lineString([a,b]);
+    const snapped=turf.nearestPointOnLine(line,click,{units:"meters"});
+    const distToLine=snapped.properties.dist; // metres from click to line
+    if(distToLine<bestDist) {
+      bestDist=distToLine;
+      const c=snapped.geometry.coordinates; // [lon,lat]
+      // Compute how far the snapped point is from pts[i-1] along this segment,
+      // using direct distance — avoids relying on turf's .location unit handling.
+      const distAlongSeg=turf.distance(
+        turf.point(a), turf.point(c), {units:"meters"}
+      );
+      const segLen=cumLens[i]-cumLens[i-1];
+      // Clamp to [0, segLen] to guard against floating-point overshoot
+      const clampedDist=Math.min(segLen, Math.max(0, distAlongSeg));
+      bestProp=(cumLens[i-1]+clampedDist)/total;
+      bestPt=[c[1],c[0]];
+    }
+  }
+  return {prop:Math.min(1,Math.max(0,bestProp)),latlng:bestPt};
+}
+
+// Extract pts/cumLens for a road's combined geometry (all segments concatenated)
+function getRoadGeomData(road) {
+  const segs=parseWKT(road.road_geometry);
+  if(!segs.length) return null;
+  const pts=segs.flat();
+  const cumLens=cumulativeLengths(pts);
+  // segBreaks: for each segment, its start/end proportion of total length
+  const total=cumLens[cumLens.length-1];
+  const breaks=[];
+  let idx=0;
+  segs.forEach(seg=>{
+    const startProp=total>0?cumLens[idx]/total:0;
+    idx+=seg.length;
+    // endProp = cumLens at the LAST point of this segment (idx-1),
+    // not idx which is the first point of the next segment.
+    const endIdx=Math.min(idx-1, cumLens.length-1);
+    const endProp=total>0?cumLens[endIdx]/total:1;
+    breaks.push({startProp,endProp,segIdx:breaks.length});
+  });
+  return {pts,cumLens,total,breaks,segs};
+}
+
+// Produce an offset polyline (metres offset, left of travel direction)
+function offsetPolyline(pts, offsetMetres) {
+  if(pts.length<2) return pts;
+  try {
+    const coords=pts.map(p=>[p[1],p[0]]);
+    const line=turf.lineString(coords);
+    const off=turf.lineOffset(line,offsetMetres,{units:"meters"});
+    return off.geometry.coordinates.map(c=>[c[1],c[0]]);
+  } catch(e) { return pts; }
+}
+
+// Compute partial estimate percentage for a road (0-1)
+function computePartialEstimate(road) {
+  const sk=statusKey(road.Status);
+  if(sk==="complete") return 1.0;
+  if(sk==="notstarted"||sk==="planned") return 0.0;
+  // In Progress
+  const pgStr=(road.partial_geometry||"").trim();
+  if(!pgStr||pgStr==="-") return 0.3; // default 30%
+  const geomData=getRoadGeomData(road);
+  if(!geomData) return 0.3;
+  const total=geomData.total;
+  if(total===0) return 0.3;
+  // Parse "seg0:0.1-0.8:B|seg1:0.2-1.0:S" format
+  let covered=0;
+  pgStr.split("|").forEach(part=>{
+    const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S|F)$/);
+    if(!m) return;
+    const segIdx=parseInt(m[1]);
+    const t0=parseFloat(m[2]),t1=parseFloat(m[3]);
+    const side=m[4];
+    const brk=geomData.breaks[segIdx];
+    if(!brk) return;
+    // Length of this covered portion in metres
+    const segTotalLen=(brk.endProp-brk.startProp)*total;
+    const coveredLen=Math.abs(t1-t0)*segTotalLen;
+    // Both sides = full contribution, single side = half
+    covered+=coveredLen*(side==="B"?1.0:0.5);
+  });
+  return Math.min(1, covered/total);
+}
+
+// ── Partial geometry string parser ────────────────────────────────────────────
+// Format: "seg0:startProp-endProp:B|seg1:startProp-endProp:S|..."
+// startProp/endProp are proportions within the segment (0-1), relative to segment length
+function parsePartialGeom(str) {
+  if(!str||str==="-") return [];
+  return str.split("|").map(part=>{
+    const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S|F)$/);
+    if(!m) return null;
+    return {segIdx:parseInt(m[1]),t0:parseFloat(m[2]),t1:parseFloat(m[3]),side:m[4]};
+  }).filter(Boolean);
+}
+
+function encodePartialGeom(parts) {
+  if(!parts||!parts.length) return "-";
+  return parts.map(p=>`seg${p.segIdx}:${p.t0.toFixed(4)}-${p.t1.toFixed(4)}:${p.side}`).join("|");
+}
+
+// Convert a global proportion (0-1 along full road) + geomData to per-segment proportions
+// Returns array of {segIdx, t0, t1} segments covered by globalT0-globalT1
+function globalPropToSegProps(globalT0, globalT1, geomData) {
+  const results=[];
+  geomData.breaks.forEach(brk=>{
+    const {startProp,endProp,segIdx}=brk;
+    const segLen=endProp-startProp;
+    if(segLen<=0) return;
+    // Overlap of [globalT0,globalT1] with [startProp,endProp]
+    const overlapStart=Math.max(globalT0,startProp);
+    const overlapEnd  =Math.min(globalT1,endProp);
+    if(overlapEnd<=overlapStart) return;
+    // Convert to proportion within this segment
+    const t0=(overlapStart-startProp)/segLen;
+    const t1=(overlapEnd  -startProp)/segLen;
+    results.push({segIdx,t0:Math.max(0,t0),t1:Math.min(1,t1)});
+  });
+  return results;
+}
+
+// ── Partial overlay rendering ─────────────────────────────────────────────────
+const PARTIAL_COLOUR = "#1e7e4a";
+const PARTIAL_WEIGHT_BOTH   = 8;
+const PARTIAL_WEIGHT_SINGLE = 6;
+const PARTIAL_OFFSET_M      = 5; // metres offset for single-side
+
+function renderAllPartials() {
+  partialLayerGroup.clearLayers();
+  partialLayers.clear();
+  const zoom=map.getZoom();
+  allRoads.forEach(road=>{
+    if(statusKey(road.Status)!=="inprogress") return;
+    const pgStr=(road.partial_geometry||"").trim();
+    if(!pgStr||pgStr==="-") return;
+    if(zoom<PARTIAL_ZOOM_THRESHOLD && road.Street.toLowerCase()!==( selectedRoadName||"").toLowerCase()) return;
+    renderPartialForRoad(road);
+  });
+}
+
+function renderPartialForRoad(road) {
+  // Remove existing partial layers for this road
+  const existing=partialLayers.get(road._rowIdx);
+  if(existing) existing.forEach(l=>partialLayerGroup.removeLayer(l));
+  const layers=[];
+
+  const pgStr=(road.partial_geometry||"").trim();
+  if(!pgStr||pgStr==="-"||statusKey(road.Status)!=="inprogress") {
+    partialLayers.set(road._rowIdx,layers);
+    return;
+  }
+
+  const geomData=getRoadGeomData(road);
+  if(!geomData) return;
+  const {pts,cumLens,total,breaks,segs}=geomData;
+  const parts=parsePartialGeom(pgStr);
+
+  parts.forEach(({segIdx,t0,t1,side})=>{
+    const brk=breaks[segIdx];
+    if(!brk) return;
+    const segPts=segs[segIdx];
+    const segCumLens=cumulativeLengths(segPts);
+    const segTotal=segCumLens[segCumLens.length-1];
+
+    // Convert t0,t1 (proportion within segment) to actual points
+    let ptsSubset=[];
+    // Collect all segment points between t0 and t1
+    const p0=interpolateAlongPts(segPts,segCumLens,t0);
+    const p1=interpolateAlongPts(segPts,segCumLens,t1);
+    ptsSubset.push(p0);
+    segPts.forEach((p,i)=>{
+      const prop=segTotal>0?segCumLens[i]/segTotal:0;
+      if(prop>t0&&prop<t1) ptsSubset.push(p);
+    });
+    ptsSubset.push(p1);
+    if(ptsSubset.length<2) return;
+
+    if(side==="B") {
+      const l=L.polyline(ptsSubset,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_BOTH,opacity:0.9,interactive:false});
+      l.addTo(partialLayerGroup); layers.push(l);
+    } else {
+      // S = left of travel direction, F = right (flipped)
+      const offsetPts=offsetPolyline(ptsSubset, side==="F" ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
+      const l=L.polyline(offsetPts,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_SINGLE,opacity:0.9,interactive:false});
+      l.addTo(partialLayerGroup); layers.push(l);
+    }
+  });
+
+  partialLayers.set(road._rowIdx,layers);
+}
+
+// Re-render partials on zoom change
+map.on("zoomend",()=>renderAllPartials());
+
+// ── Misc helpers ──────────────────────────────────────────────────────────────
+function escHtml(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function getResidences(row) {
-  // Robust lookup — handle any capitalisation the published CSV might use
-  const raw = row['Residences'] ?? row['residences'] ?? row['RESIDENCES'] ?? "";
-  return parseFloat(raw) || 0;
+  const raw=row["Residences"]??row["residences"]??row["RESIDENCES"]??"";
+  return parseFloat(raw)||0;
 }
-
-function fmtResidences(row) {
-  const n = getResidences(row);
-  if (!n) return null;
-  return String(Math.round(n));
-}
+function fmtResidences(row) { const n=getResidences(row); return n?String(Math.round(n)):null; }
 
 // ── Popup HTML ────────────────────────────────────────────────────────────────
 function popupHtml(row) {
-  const st     = getStatus(row.Status);
-  const rowRef = encodeURIComponent(JSON.stringify({ rowIdx: row._rowIdx, street: row.Street, ward: row.Ward }));
-  const resStr = fmtResidences(row);
-  const resBadge = resStr
-    ? `<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`
-    : "";
+  const st=getStatus(row.Status);
+  const rowRef=encodeURIComponent(JSON.stringify({rowIdx:row._rowIdx,street:row.Street,ward:row.Ward}));
+  const resStr=fmtResidences(row);
+  const resBadge=resStr?`<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`:"";
   return `
     <div class="popup-street">${escHtml(row.Street)}</div>
     <div class="popup-ward">${escHtml(row.Ward)}</div>
@@ -458,497 +631,772 @@ function popupHtml(row) {
   `;
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
-let renderedLayers = new Map();
-
-function segmentKey(rowIdx, segIdx) { return `${rowIdx}_${segIdx}`; }
+// ── Main render ───────────────────────────────────────────────────────────────
+function segmentKey(rowIdx,segIdx) { return `${rowIdx}_${segIdx}`; }
 
 function desiredLayerSpec(road) {
-  const sk   = statusKey(road.Status);
-  const ward = (road.Ward || "").trim();
-  if (!activeStatus.has(sk) || !activeWards.has(ward)) return null;
-  const hasSel = !!selectedRoadName;
-  const selKey = hasSel ? selectedRoadName.toLowerCase() : null;
-  const isSel  = hasSel && (road.Street || "").trim().toLowerCase() === selKey;
-  const opac   = hasSel && !isSel ? 0.15 : 0.85;
-  const colour = colourFor(road.Status);
-  const weight = weightFor(road.Status);
-  return { colour, weight, opac, isSel, sk, ward };
+  const sk=statusKey(road.Status);
+  const ward=(road.Ward||"").trim();
+  if(!activeStatus.has(sk)||!activeWards.has(ward)) return null;
+  const hasSel=!!selectedRoadName;
+  const isSel=hasSel&&(road.Street||"").trim().toLowerCase()===selectedRoadName.toLowerCase();
+  const opac=hasSel&&!isSel?0.15:0.85;
+  return {colour:colourFor(road.Status),weight:weightFor(road.Status),opac,isSel,sk,ward};
 }
 
-function specChanged(existingSpec, newSpec) {
-  if (!existingSpec || !newSpec) return existingSpec !== newSpec;
-  return existingSpec.colour !== newSpec.colour
-      || existingSpec.weight !== newSpec.weight
-      || existingSpec.opac   !== newSpec.opac
-      || existingSpec.isSel  !== newSpec.isSel;
+function specChanged(a,b) {
+  if(!a||!b) return a!==b;
+  return a.colour!==b.colour||a.weight!==b.weight||a.opac!==b.opac||a.isSel!==b.isSel;
 }
 
 function renderLines() {
-  const desired = new Map();
-  allRoads.forEach(road => {
-    const spec = desiredLayerSpec(road);
-    const ward = (road.Ward || "").trim();
-    const segs = parseWKT(road.road_geometry);
-    if (segs.length > 0) {
-      segs.forEach((pts, segIdx) => {
-        const k = segmentKey(road._rowIdx, segIdx);
-        desired.set(k, { road, spec, pts, isMarker: false, ward });
+  const desired=new Map();
+  allRoads.forEach(road=>{
+    const spec=desiredLayerSpec(road);
+    const ward=(road.Ward||"").trim();
+    const segs=parseWKT(road.road_geometry);
+    if(segs.length>0) {
+      segs.forEach((pts,segIdx)=>{
+        desired.set(segmentKey(road._rowIdx,segIdx),{road,spec,pts,isMarker:false,ward});
       });
     } else {
-      const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
-      if (!isNaN(lat) && !isNaN(lon)) {
-        const k = segmentKey(road._rowIdx, 0);
-        desired.set(k, { road, spec, latlng: [lat, lon], isMarker: true, ward });
-      }
+      const lat=parseFloat(road["@lat"]),lon=parseFloat(road["@lon"]);
+      if(!isNaN(lat)&&!isNaN(lon))
+        desired.set(segmentKey(road._rowIdx,0),{road,spec,latlng:[lat,lon],isMarker:true,ward});
     }
   });
 
-  renderedLayers.forEach((entry, k) => {
-    const d = desired.get(k);
-    if (!d || !d.spec || specChanged(entry.spec, d.spec)) {
-      entry.layers.forEach(l => { const ward = entry.ward; if (layerGroups[ward]) layerGroups[ward].removeLayer(l); });
+  renderedLayers.forEach((entry,k)=>{
+    const d=desired.get(k);
+    if(!d||!d.spec||specChanged(entry.spec,d.spec)) {
+      entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});
       renderedLayers.delete(k);
     }
   });
 
-  desired.forEach((d, k) => {
-    if (!d.spec) return;
-    if (renderedLayers.has(k)) return;
-    const { road, spec, ward } = d;
-    if (!layerGroups[ward]) return;
-    const layers = [];
-    if (!d.isMarker) {
-      const { pts } = d;
-      if (spec.isSel) {
-        const glow = L.polyline(pts, { color: "#fff", weight: spec.weight + 6, opacity: 0.25, interactive: false });
+  desired.forEach((d,k)=>{
+    if(!d.spec||renderedLayers.has(k)) return;
+    const {road,spec,ward}=d;
+    if(!layerGroups[ward]) return;
+    const layers=[];
+    if(!d.isMarker) {
+      const {pts}=d;
+      if(spec.isSel) {
+        const glow=L.polyline(pts,{color:"#fff",weight:spec.weight+6,opacity:0.25,interactive:false});
         glow.addTo(layerGroups[ward]); layers.push(glow);
-        const line = L.polyline(pts, { color: spec.colour, weight: spec.weight + 2, opacity: 1 });
+        const line=L.polyline(pts,{color:spec.colour,weight:spec.weight+2,opacity:1});
         line.bindPopup(popupHtml(road)); line.addTo(layerGroups[ward]); layers.push(line);
       } else {
-        const hit = L.polyline(pts, { color: "transparent", weight: 20, opacity: 0, interactive: true });
+        const hit=L.polyline(pts,{color:"transparent",weight:20,opacity:0,interactive:true});
         hit.bindPopup(popupHtml(road)); hit.addTo(layerGroups[ward]); layers.push(hit);
-        const line = L.polyline(pts, { color: spec.colour, weight: spec.weight, opacity: spec.opac, interactive: false });
+        const line=L.polyline(pts,{color:spec.colour,weight:spec.weight,opacity:spec.opac,interactive:false});
         line.addTo(layerGroups[ward]); layers.push(line);
       }
     } else {
-      const marker = L.circleMarker(d.latlng, {
-        radius: spec.isSel ? 7 : 5, color: spec.colour, fillColor: spec.colour,
-        fillOpacity: spec.opac === 0.15 ? 0.2 : 0.8, weight: 1.5, opacity: spec.opac
-      });
+      const marker=L.circleMarker(d.latlng,{radius:spec.isSel?7:5,color:spec.colour,fillColor:spec.colour,fillOpacity:spec.opac===0.15?0.2:0.8,weight:1.5,opacity:spec.opac});
       marker.bindPopup(popupHtml(road)); marker.addTo(layerGroups[ward]); layers.push(marker);
     }
-    renderedLayers.set(k, { layers, spec: { ...spec }, ward });
+    renderedLayers.set(k,{layers,spec:{...spec},ward});
   });
+
+  renderAllPartials();
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-function updateStats() {
-  const vis = allRoads.filter(r => activeStatus.has(statusKey(r.Status)) && activeWards.has((r.Ward||"").trim()));
-  STATUSES.forEach(s => {
-    const el = document.getElementById("stat-" + s.key);
-    if (el) el.textContent = vis.filter(r => statusKey(r.Status) === s.key).length;
+function computeEstimatedResidencesServed() {
+  let served=0;
+  allRoads.forEach(r=>{
+    const res=getResidences(r);
+    if(!res) return;
+    served+=res*computePartialEstimate(r);
   });
+  return served;
+}
 
-  // Residences served = sum of Residences for complete+in_progress roads (all wards, not just visible)
-  // This matches the Dashboard H23 logic
-  let totalResidences = 0;
-  let servedResidences = 0;
-  allRoads.forEach(r => {
-    const res = getResidences(r);
-    totalResidences += res;
-    const sk = statusKey(r.Status);
-    if (sk === "complete" || sk === "inprogress") servedResidences += res;
-  });
-
-  const resEl = document.getElementById("stat-residences");
-  const resPctEl = document.getElementById("stat-residences-pct");
-  if (resEl) resEl.textContent = Math.round(servedResidences).toLocaleString();
-  if (resPctEl && totalResidences > 0) {
-    const pct = (servedResidences / totalResidences * 100).toFixed(1);
-    resPctEl.textContent = ` / ${Math.round(totalResidences).toLocaleString()} (${pct}%)`;
+function updateResidencesStat() {
+  const resEl=document.getElementById("stat-residences");
+  const resPctEl=document.getElementById("stat-residences-pct");
+  if(!resEl) return;
+  const served=residencesServedTotal??computeEstimatedResidencesServed();
+  resEl.textContent=Math.round(served).toLocaleString();
+  let total=0;
+  allRoads.forEach(r=>{total+=getResidences(r);});
+  if(resPctEl&&total>0) {
+    const pct=(served/total*100).toFixed(1);
+    resPctEl.textContent=` / ${Math.round(total).toLocaleString()} (${pct}%)`;
   }
 }
 
+function updateStats() {
+  const vis=allRoads.filter(r=>activeStatus.has(statusKey(r.Status))&&activeWards.has((r.Ward||"").trim()));
+  STATUSES.forEach(s=>{
+    const el=document.getElementById("stat-"+s.key);
+    if(el) el.textContent=vis.filter(r=>statusKey(r.Status)===s.key).length;
+  });
+  updateResidencesStat();
+}
+
 function updateCountBadges() {
-  STATUSES.forEach(s => {
-    const el = document.getElementById("cnt-" + s.key);
-    if (el) el.textContent = allRoads.filter(r => statusKey(r.Status) === s.key).length;
+  STATUSES.forEach(s=>{
+    const el=document.getElementById("cnt-"+s.key);
+    if(el) el.textContent=allRoads.filter(r=>statusKey(r.Status)===s.key).length;
   });
 }
 
 // ── Toggles ───────────────────────────────────────────────────────────────────
 function toggleStatus(btn) {
-  const s = btn.dataset.status;
-  if (activeStatus.has(s)) { activeStatus.delete(s); btn.classList.replace("active","inactive"); }
-  else                     { activeStatus.add(s);    btn.classList.replace("inactive","active"); }
+  const s=btn.dataset.status;
+  if(activeStatus.has(s)){activeStatus.delete(s);btn.classList.replace("active","inactive");}
+  else{activeStatus.add(s);btn.classList.replace("inactive","active");}
   renderLines(); updateStats();
 }
 
 // ── Wards ─────────────────────────────────────────────────────────────────────
-function soloWard(ward, e) {
+function soloWard(ward,e) {
   e.stopPropagation();
-  const allWards = Object.keys(wardCounts);
-  if (activeWards.size === 1 && activeWards.has(ward)) {
-    allWards.forEach(w => activeWards.add(w));
-  } else {
-    activeWards.clear();
-    activeWards.add(ward);
-  }
+  const all=Object.keys(wardCounts);
+  if(activeWards.size===1&&activeWards.has(ward)) all.forEach(w=>activeWards.add(w));
+  else { activeWards.clear(); activeWards.add(ward); }
   buildWardList(document.querySelector(".ward-search").value);
   renderLines(); updateStats();
 }
-
-function buildWardList(filter = "") {
-  const container = document.getElementById("ward-list");
-  container.innerHTML = "";
-  Object.keys(wardCounts).sort()
-    .filter(w => w.toLowerCase().includes(filter.toLowerCase()))
-    .forEach(ward => {
-      const chip = document.createElement("div");
-      chip.className = "ward-chip" + (activeWards.has(ward) ? " selected" : "");
-      const soloBtn = document.createElement("button");
-      soloBtn.className = "ward-solo-btn"; soloBtn.textContent = "◉"; soloBtn.title = "Show only this ward";
-      soloBtn.addEventListener("click", ev => soloWard(ward, ev));
-      const nameSpan = document.createElement("span"); nameSpan.className = "ward-chip-name"; nameSpan.textContent = ward;
-      const countSpan = document.createElement("span"); countSpan.className = "ward-chip-count"; countSpan.textContent = wardCounts[ward];
-      chip.appendChild(soloBtn); chip.appendChild(nameSpan); chip.appendChild(countSpan);
-      chip.addEventListener("click", () => {
-        if (activeWards.has(ward)) activeWards.delete(ward); else activeWards.add(ward);
-        chip.classList.toggle("selected");
-        renderLines(); updateStats();
-      });
-      container.appendChild(chip);
+function buildWardList(filter="") {
+  const container=document.getElementById("ward-list");
+  container.innerHTML="";
+  Object.keys(wardCounts).sort().filter(w=>w.toLowerCase().includes(filter.toLowerCase())).forEach(ward=>{
+    const chip=document.createElement("div");
+    chip.className="ward-chip"+(activeWards.has(ward)?" selected":"");
+    const solo=document.createElement("button"); solo.className="ward-solo-btn"; solo.textContent="◉"; solo.title="Show only this ward";
+    solo.addEventListener("click",ev=>soloWard(ward,ev));
+    const nm=document.createElement("span"); nm.className="ward-chip-name"; nm.textContent=ward;
+    const ct=document.createElement("span"); ct.className="ward-chip-count"; ct.textContent=wardCounts[ward];
+    chip.appendChild(solo); chip.appendChild(nm); chip.appendChild(ct);
+    chip.addEventListener("click",()=>{
+      if(activeWards.has(ward)) activeWards.delete(ward); else activeWards.add(ward);
+      chip.classList.toggle("selected"); renderLines(); updateStats();
     });
+    container.appendChild(chip);
+  });
 }
-function filterWardList(val) { buildWardList(val); }
+function filterWardList(val){buildWardList(val);}
 function selectAllWards() {
-  const wards = Object.keys(wardCounts);
-  const allSel = wards.every(w => activeWards.has(w));
-  if (allSel) wards.forEach(w => activeWards.delete(w)); else wards.forEach(w => activeWards.add(w));
+  const wards=Object.keys(wardCounts);
+  const allSel=wards.every(w=>activeWards.has(w));
+  if(allSel) wards.forEach(w=>activeWards.delete(w)); else wards.forEach(w=>activeWards.add(w));
   buildWardList(document.querySelector(".ward-search").value);
   renderLines(); updateStats();
 }
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 function showError(msg) {
-  const b = document.getElementById("error-banner");
-  b.textContent = msg; b.style.display = "block";
-  setTimeout(() => { b.style.display = "none"; }, 8000);
+  const b=document.getElementById("error-banner");
+  b.textContent=msg; b.style.display="block";
+  setTimeout(()=>{b.style.display="none";},8000);
 }
 
-// ── CSV fetch ─────────────────────────────────────────────────────────────────
+// ── CSV ───────────────────────────────────────────────────────────────────────
 async function fetchCSVText(url) {
-  const sep = url.includes("?") ? "&" : "?";
-  const res = await fetch(url + sep + "cachebust=" + Date.now(), { credentials: "omit", cache: "no-store" });
-  if (!res.ok) throw new Error("HTTP " + res.status);
+  const sep=url.includes("?")?"&":"?";
+  const res=await fetch(url+sep+"cachebust="+Date.now(),{credentials:"omit",cache:"no-store"});
+  if(!res.ok) throw new Error("HTTP "+res.status);
   return res.text();
 }
-function parseCSVFirstCell(text) { const firstLine = text.trim().split("\n")[0] || ""; return firstLine.split(",")[0].replace(/^"|"$/g, "").trim(); }
-function parseCSVRows(text) { return new Promise(resolve => { Papa.parse(text, { header: true, skipEmptyLines: true, complete: r => resolve(r.data) }); }); }
+function parseCSVRows(text) {
+  return new Promise(resolve=>{Papa.parse(text,{header:true,skipEmptyLines:true,complete:r=>resolve(r.data)});});
+}
 
-// ── localStorage cache ─────────────────────────────────────────────────────────
-function saveToCache(rows, checksum) {
-  try { localStorage.setItem(LS_DATA, JSON.stringify(rows)); localStorage.setItem(LS_CHECKSUM, checksum || ""); localStorage.setItem(LS_TIME, new Date().toISOString()); } catch(e) {}
+// ── Cache ─────────────────────────────────────────────────────────────────────
+function saveToCache(rows,checksum) {
+  try{localStorage.setItem(LS_DATA,JSON.stringify(rows));localStorage.setItem(LS_CHECKSUM,checksum||"");localStorage.setItem(LS_TIME,new Date().toISOString());}catch(e){}
 }
 function loadFromCache() {
-  try {
-    const raw = localStorage.getItem(LS_DATA);
-    if (!raw) return null;
-    return { rows: JSON.parse(raw), checksum: localStorage.getItem(LS_CHECKSUM) || "", time: new Date(localStorage.getItem(LS_TIME) || 0) };
-  } catch(e) { return null; }
+  try{
+    const raw=localStorage.getItem(LS_DATA); if(!raw) return null;
+    return{rows:JSON.parse(raw),checksum:localStorage.getItem(LS_CHECKSUM)||"",time:new Date(localStorage.getItem(LS_TIME)||0)};
+  }catch(e){return null;}
 }
 
-// ── Ingest rows ─────────────────────────────────────────────────────────────────
-function ingestRows(rows, checksum, timestamp, isFirstLoad) {
-  const prevWards = new Set(activeWards);
-  const newByIdx = new Map();
-  rows.filter(r => r.Street && r.Street.trim()).forEach((r, i) => {
-    r._rowIdx = i + 2;
-    newByIdx.set(r._rowIdx, r);
+// ── Ingest ─────────────────────────────────────────────────────────────────────
+function ingestRows(rows,checksum,timestamp,isFirstLoad) {
+  const prevWards=new Set(activeWards);
+  const newByIdx=new Map();
+  rows.filter(r=>r.Street&&r.Street.trim()).forEach((r,i)=>{
+    r._rowIdx=i+2;
+    newByIdx.set(r._rowIdx,r);
   });
 
-  if (isFirstLoad) {
-    renderedLayers.forEach(entry => { entry.layers.forEach(l => { Object.values(layerGroups).forEach(g => g.removeLayer(l)); }); });
-    renderedLayers.clear();
-    Object.values(layerGroups).forEach(g => { g.clearLayers(); map.removeLayer(g); });
-    layerGroups = {}; wardCounts = {}; activeWards = new Set();
-    allRoads = [...newByIdx.values()];
-    allRoads.forEach(r => { const w = (r.Ward || "Unknown").trim(); wardCounts[w] = (wardCounts[w] || 0) + 1; });
-    Object.keys(wardCounts).forEach(w => {
-      layerGroups[w] = L.layerGroup().addTo(map);
-      if (!prevWards.size || prevWards.has(w)) activeWards.add(w);
+  if(isFirstLoad) {
+    renderedLayers.forEach(entry=>{entry.layers.forEach(l=>{Object.values(layerGroups).forEach(g=>g.removeLayer(l));});});
+    renderedLayers.clear(); partialLayerGroup.clearLayers(); partialLayers.clear();
+    Object.values(layerGroups).forEach(g=>{g.clearLayers();map.removeLayer(g);});
+    layerGroups={}; wardCounts={}; activeWards=new Set();
+    allRoads=[...newByIdx.values()];
+    allRoads.forEach(r=>{const w=(r.Ward||"Unknown").trim();wardCounts[w]=(wardCounts[w]||0)+1;});
+    Object.keys(wardCounts).forEach(w=>{
+      layerGroups[w]=L.layerGroup().addTo(map);
+      if(!prevWards.size||prevWards.has(w)) activeWards.add(w);
     });
   } else {
-    let changed = false;
-    allRoads.forEach(existing => {
-      const updated = newByIdx.get(existing._rowIdx);
-      if (updated && updated.Status !== existing.Status) {
-        existing.Status = updated.Status;
-        [...renderedLayers.keys()].filter(k => k.startsWith(existing._rowIdx + "_")).forEach(k => {
-          const entry = renderedLayers.get(k);
-          if (entry) { entry.layers.forEach(l => { const ward = entry.ward; if (layerGroups[ward]) layerGroups[ward].removeLayer(l); }); renderedLayers.delete(k); }
+    let changed=false;
+    allRoads.forEach(existing=>{
+      const updated=newByIdx.get(existing._rowIdx);
+      if(!updated) return;
+      let rowChanged=false;
+      if(updated.Status!==existing.Status){existing.Status=updated.Status;rowChanged=true;}
+      if((updated.partial_geometry||"-")!==(existing.partial_geometry||"-")){existing.partial_geometry=updated.partial_geometry;rowChanged=true;}
+      if(rowChanged) {
+        [...renderedLayers.keys()].filter(k=>k.startsWith(existing._rowIdx+"_")).forEach(k=>{
+          const entry=renderedLayers.get(k);
+          if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
         });
-        changed = true;
+        changed=true;
       }
     });
-    if (!changed) { lastChecksum = checksum; lastLoadTime = timestamp; setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime)); return; }
+    if(!changed){lastChecksum=checksum;lastLoadTime=timestamp;setSyncState("fresh","Up to date · "+formatTime(lastLoadTime));return;}
   }
 
   buildWardList(); updateCountBadges(); renderLines(); updateStats(); buildRoadSearchIndex();
-
-  if (isFirstLoad) {
-    const pts = allRoads.filter(r => parseFloat(r["@lat"]) && parseFloat(r["@lon"])).map(r => [parseFloat(r["@lat"]), parseFloat(r["@lon"])]);
-    if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
+  if(isFirstLoad) {
+    const pts=allRoads.filter(r=>parseFloat(r["@lat"])&&parseFloat(r["@lon"])).map(r=>[parseFloat(r["@lat"]),parseFloat(r["@lon"])]);
+    if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
   }
-
-  lastChecksum = checksum; lastLoadTime = timestamp;
-  setSyncState("fresh", "Updated " + formatTime(lastLoadTime));
+  lastChecksum=checksum; lastLoadTime=timestamp;
+  setSyncState("fresh","Updated "+formatTime(lastLoadTime));
 }
 
-// ── Content hash (replaces single-cell checksum) ─────────────────────────────
-// We hash the full CSV text so any edit — status changes, residences, anything
-// — is detected without relying on a manually-maintained checksum cell.
-async function hashText(text) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+// ── Checksum / poll ───────────────────────────────────────────────────────────
+async function fetchChecksum() {
+  const text=await fetchCSVText(CHECKSUM_URL);
+  const raw=text.trim().replace(/^"|"$/g,"").trim();
+  const parts=raw.split("|");
+  if(parts.length===5) {
+    const res=parseFloat(parts[4]);
+    if(!isNaN(res)){residencesServedTotal=res;updateResidencesStat();}
+  }
+  return raw;
 }
 
-async function checkForUpdates(isManual = false) {
-  if (isChecking) return;
-  isChecking = true;
-  setSyncState("checking", isManual ? "Checking…" : "Checking for updates…");
+async function loadFullSheet(checksum) {
+  const isFirst=!lastChecksum;
+  if(isFirst){document.getElementById("loading-msg").textContent="Loading road data…";document.getElementById("loading").classList.remove("hidden");}
+  else{document.getElementById("loading-msg").textContent="Reloading road data…";document.getElementById("loading").classList.remove("hidden");}
   try {
-    const text = await fetchCSVText(SHEET_CSV_URL);
-    const hash = await hashText(text);
-    if (hash !== lastChecksum) {
-      // Data changed — parse and ingest
-      const rows = await parseCSVRows(text);
-      if (!rows.length) throw new Error("No data rows found.");
-      const isFirst = !lastChecksum;
-      const ts = new Date();
-      if (isFirst) {
-        document.getElementById("loading-msg").textContent = "Loading road data…";
-        document.getElementById("loading").classList.remove("hidden");
-      }
-      ingestRows(rows, hash, ts, isFirst);
-      saveToCache(rows, hash);
-      if (isFirst) document.getElementById("loading").classList.add("hidden");
-    } else {
-      lastLoadTime = lastLoadTime || new Date();
-      setSyncState("fresh", "Up to date · " + formatTime(lastLoadTime));
-    }
-  } catch(err) { setSyncState("error", "Check failed · " + formatTime(lastLoadTime)); if (isManual) showError("Refresh failed: " + err.message); }
-  finally { isChecking = false; schedulePoll(); }
+    const text=await fetchCSVText(SHEET_CSV_URL);
+    const rows=await parseCSVRows(text);
+    if(!rows.length) throw new Error("No data rows found.");
+    ingestRows(rows,checksum,new Date(),isFirst);
+    saveToCache(rows,checksum);
+  } finally { document.getElementById("loading").classList.add("hidden"); }
 }
-function schedulePoll() { clearTimeout(pollTimer); pollTimer = setTimeout(() => checkForUpdates(false), POLL_INTERVAL_MS); }
-function manualRefresh() { clearTimeout(pollTimer); checkForUpdates(true); }
+
+async function checkForUpdates(isManual=false) {
+  if(isChecking) return;
+  isChecking=true;
+  setSyncState("checking",isManual?"Checking…":"Checking for updates…");
+  try {
+    const cs=await fetchChecksum();
+    if(!cs||cs!==lastChecksum) await loadFullSheet(cs||null);
+    else{lastLoadTime=lastLoadTime||new Date();setSyncState("fresh","Up to date · "+formatTime(lastLoadTime));}
+  } catch(err) {
+    setSyncState("error","Check failed · "+formatTime(lastLoadTime));
+    if(isManual) showError("Refresh failed: "+err.message);
+  } finally{isChecking=false;schedulePoll();}
+}
+function schedulePoll(){clearTimeout(pollTimer);pollTimer=setTimeout(()=>checkForUpdates(false),POLL_INTERVAL_MS);}
+function manualRefresh(){clearTimeout(pollTimer);checkForUpdates(true);}
+
+// ── Recompute checksum locally after edits ────────────────────────────────────
+function recomputeAndSaveChecksum() {
+  const counts={Not_Started:0,Planned:0,In_Progress:0,Complete:0};
+  let servedRes=0;
+  allRoads.forEach(r=>{
+    const s=(r.Status||"").trim(); if(counts[s]!==undefined) counts[s]++;
+    servedRes+=getResidences(r)*computePartialEstimate(r);
+  });
+  const cs=`${counts.Not_Started}|${counts.Planned}|${counts.In_Progress}|${counts.Complete}|${Math.round(servedRes)}`;
+  residencesServedTotal=servedRes; updateResidencesStat();
+  lastChecksum=cs; saveToCache(allRoads,cs);
+}
 
 // ── Road Search ───────────────────────────────────────────────────────────────
-let roadSearchIndex  = [];
-let dropdownFocusIdx = -1;
-
+let roadSearchIndex=[];
+let dropdownFocusIdx=-1;
 function buildRoadSearchIndex() {
-  const m = {};
-  allRoads.forEach(row => {
-    const name = (row.Street || "").trim(); if (!name) return;
-    const key = name.toLowerCase();
-    if (!m[key]) m[key] = { name, wards: new Set(), allLatLngs: [], rows: [] };
-    m[key].wards.add((row.Ward || "Unknown").trim());
+  const m={};
+  allRoads.forEach(row=>{
+    const name=(row.Street||"").trim(); if(!name) return;
+    const key=name.toLowerCase();
+    if(!m[key]) m[key]={name,wards:new Set(),allLatLngs:[],rows:[]};
+    m[key].wards.add((row.Ward||"Unknown").trim());
     m[key].rows.push(row);
-    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
-    if (!isNaN(lat) && !isNaN(lon)) m[key].allLatLngs.push([lat, lon]);
-    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => m[key].allLatLngs.push(pt)));
+    const lat=parseFloat(row["@lat"]),lon=parseFloat(row["@lon"]);
+    if(!isNaN(lat)&&!isNaN(lon)) m[key].allLatLngs.push([lat,lon]);
+    parseWKT(row.road_geometry).forEach(seg=>seg.forEach(pt=>m[key].allLatLngs.push(pt)));
   });
-  roadSearchIndex = Object.values(m).sort((a, b) => a.name.localeCompare(b.name));
+  roadSearchIndex=Object.values(m).sort((a,b)=>a.name.localeCompare(b.name));
 }
-
-function roadInActiveWards(road) { return road.rows.some(r => activeWards.has((r.Ward || "Unknown").trim())); }
-
+function roadInActiveWards(road){return road.rows.some(r=>activeWards.has((r.Ward||"Unknown").trim()));}
 function onRoadSearchInput(val) {
-  const clearBtn = document.getElementById("road-search-clear");
-  const dropdown = document.getElementById("road-dropdown");
-  clearBtn.style.display = val ? "block" : "none";
-  dropdownFocusIdx = -1;
-  if (!val.trim()) { dropdown.classList.remove("open"); return; }
-  const q = val.trim().toLowerCase();
-  const all = roadSearchIndex.filter(r => r.name.toLowerCase().includes(q));
-  const matches = [...all.filter(r => roadInActiveWards(r)), ...all.filter(r => !roadInActiveWards(r))].slice(0, 40);
-  if (!matches.length) {
-    dropdown.innerHTML = `<div class="road-no-results">No roads found</div>`; dropdown._matches = [];
-  } else {
-    dropdown.innerHTML = matches.map((r, i) => {
-      const inActive = roadInActiveWards(r);
-      const wardHtml = [...r.wards].sort().map(w => `<span class="${activeWards.has(w) ? "road-option-ward-in" : "road-option-ward-out"}">${escHtml(w)}</span>`).join('<span style="color:var(--border)"> · </span>');
-      return `<div class="road-option${inActive ? "" : " out-of-ward"}" onmousedown="selectRoad(${i},event)"><div class="road-option-name">${escHtml(r.name)}</div><div class="road-option-meta">${wardHtml}</div></div>`;
-    }).join("");
-    dropdown._matches = matches;
+  const clearBtn=document.getElementById("road-search-clear"),dropdown=document.getElementById("road-dropdown");
+  clearBtn.style.display=val?"block":"none"; dropdownFocusIdx=-1;
+  if(!val.trim()){dropdown.classList.remove("open");return;}
+  const q=val.trim().toLowerCase();
+  const all=roadSearchIndex.filter(r=>r.name.toLowerCase().includes(q));
+  const matches=[...all.filter(r=>roadInActiveWards(r)),...all.filter(r=>!roadInActiveWards(r))].slice(0,40);
+  if(!matches.length){dropdown.innerHTML=`<div class="road-no-results">No roads found</div>`;dropdown._matches=[];}
+  else {
+    dropdown.innerHTML=matches.map((r,i)=>{
+      const inActive=roadInActiveWards(r);
+      const wardHtml=[...r.wards].sort().map(w=>`<span class="${activeWards.has(w)?"road-option-ward-in":"road-option-ward-out"}">${escHtml(w)}</span>`).join('<span style="color:var(--border)"> · </span>');
+      return `<div class="road-option${inActive?"":" out-of-ward"}" onmousedown="selectRoad(${i},event)"><div class="road-option-name">${escHtml(r.name)}</div><div class="road-option-meta">${wardHtml}</div></div>`;
+    }).join(""); dropdown._matches=matches;
   }
   dropdown.classList.add("open");
 }
-
 function onRoadSearchKey(e) {
-  const dropdown = document.getElementById("road-dropdown");
-  const opts = dropdown.querySelectorAll(".road-option");
-  if (!dropdown.classList.contains("open") || !opts.length) return;
-  if (e.key === "ArrowDown")  { e.preventDefault(); dropdownFocusIdx = Math.min(dropdownFocusIdx+1, opts.length-1); updateDropdownFocus(opts); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); dropdownFocusIdx = Math.max(dropdownFocusIdx-1, 0); updateDropdownFocus(opts); }
-  else if (e.key === "Enter") { e.preventDefault(); if (dropdownFocusIdx >= 0 && dropdown._matches?.[dropdownFocusIdx]) { selectedRoadName = null; activateRoad(dropdown._matches[dropdownFocusIdx]); closeDropdown(); } }
-  else if (e.key === "Escape") { clearSelection(); closeDropdown(); }
+  const dropdown=document.getElementById("road-dropdown"),opts=dropdown.querySelectorAll(".road-option");
+  if(!dropdown.classList.contains("open")||!opts.length) return;
+  if(e.key==="ArrowDown"){e.preventDefault();dropdownFocusIdx=Math.min(dropdownFocusIdx+1,opts.length-1);updateDropdownFocus(opts);}
+  else if(e.key==="ArrowUp"){e.preventDefault();dropdownFocusIdx=Math.max(dropdownFocusIdx-1,0);updateDropdownFocus(opts);}
+  else if(e.key==="Enter"){e.preventDefault();if(dropdownFocusIdx>=0&&dropdown._matches?.[dropdownFocusIdx]){selectedRoadName=null;activateRoad(dropdown._matches[dropdownFocusIdx]);closeDropdown();}}
+  else if(e.key==="Escape"){clearSelection();closeDropdown();}
 }
-function updateDropdownFocus(opts) { opts.forEach((el, i) => el.classList.toggle("focused", i === dropdownFocusIdx)); if (opts[dropdownFocusIdx]) opts[dropdownFocusIdx].scrollIntoView({ block: "nearest" }); }
-function selectRoad(idx, e) { e.preventDefault(); const dropdown = document.getElementById("road-dropdown"); if (!dropdown._matches) return; document.getElementById("road-search-input").value = dropdown._matches[idx].name; selectedRoadName = null; activateRoad(dropdown._matches[idx]); closeDropdown(); }
+function updateDropdownFocus(opts){opts.forEach((el,i)=>el.classList.toggle("focused",i===dropdownFocusIdx));if(opts[dropdownFocusIdx])opts[dropdownFocusIdx].scrollIntoView({block:"nearest"});}
+function selectRoad(idx,e){e.preventDefault();const dd=document.getElementById("road-dropdown");if(!dd._matches)return;document.getElementById("road-search-input").value=dd._matches[idx].name;selectedRoadName=null;activateRoad(dd._matches[idx]);closeDropdown();}
 function activateRoad(road) {
-  selectedRoadName = road.name;
-  const fitPts = [], fallPts = [];
-  road.rows.forEach(row => {
-    const ward = (row.Ward || "Unknown").trim();
-    if (!activeWards.has(ward)) return;
-    const pts = [];
-    parseWKT(row.road_geometry).forEach(seg => seg.forEach(pt => pts.push(pt)));
-    const lat = parseFloat(row["@lat"]), lon = parseFloat(row["@lon"]);
-    if (!isNaN(lat) && !isNaN(lon)) pts.push([lat, lon]);
-    if (activeStatus.has(statusKey(row.Status))) pts.forEach(p => fitPts.push(p));
-    pts.forEach(p => fallPts.push(p));
+  selectedRoadName=road.name;
+  const fitPts=[],fallPts=[];
+  road.rows.forEach(row=>{
+    const ward=(row.Ward||"Unknown").trim(); if(!activeWards.has(ward)) return;
+    const pts=[];
+    parseWKT(row.road_geometry).forEach(seg=>seg.forEach(pt=>pts.push(pt)));
+    const lat=parseFloat(row["@lat"]),lon=parseFloat(row["@lon"]);
+    if(!isNaN(lat)&&!isNaN(lon)) pts.push([lat,lon]);
+    if(activeStatus.has(statusKey(row.Status))) pts.forEach(p=>fitPts.push(p));
+    pts.forEach(p=>fallPts.push(p));
   });
-  const pts = fitPts.length ? fitPts : (fallPts.length ? fallPts : road.allLatLngs);
-  if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1), { maxZoom: 17 });
+  const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
+  if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1),{maxZoom:17});
   renderLines();
 }
-function clearSelection() { if (!selectedRoadName) return; selectedRoadName = null; renderLines(); }
-function closeDropdown() { document.getElementById("road-dropdown").classList.remove("open"); dropdownFocusIdx = -1; }
-function clearRoadSearch() { document.getElementById("road-search-input").value = ""; document.getElementById("road-search-clear").style.display = "none"; clearSelection(); closeDropdown(); }
-map.on("click", () => clearSelection());
-document.addEventListener("click", e => { if (!e.target.closest(".road-search-wrap")) closeDropdown(); });
+function clearSelection(){if(!selectedRoadName)return;selectedRoadName=null;renderLines();}
+function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
+function clearRoadSearch(){document.getElementById("road-search-input").value="";document.getElementById("road-search-clear").style.display="none";clearSelection();closeDropdown();}
+map.on("click",e=>{
+  if(drawState) { handleDrawClick(e); return; }
+  clearSelection();
+});
+document.addEventListener("click",e=>{if(!e.target.closest(".road-search-wrap"))closeDropdown();});
 
-// ── Auth & Edit ───────────────────────────────────────────────────────────────
-let pendingEdit = null;
-function tokenIsValid() { return authToken && Date.now() < authExpiry - 30_000; }
-
-function popupEditClicked(btn, rowRefEncoded) {
-  const rowRef  = JSON.parse(decodeURIComponent(rowRefEncoded));
-  const editDiv = document.getElementById("edit-" + rowRef.rowIdx);
-  if (!editDiv) return;
-  if (editDiv.style.display !== "none") { editDiv.style.display = "none"; return; }
-  editDiv.style.display = "block";
-  if (tokenIsValid() && authAuthorised)  showStatusPicker(editDiv, rowRef);
-  else if (tokenIsValid())               showEditMsg(editDiv, "Your account is not on the authorised list.", "error");
-  else { pendingEdit = { editDiv, rowRef }; showSignInPrompt(editDiv); }
+// ── Auth ──────────────────────────────────────────────────────────────────────
+let pendingEdit=null;
+function tokenIsValid(){return authToken&&Date.now()<authExpiry-30_000;}
+function popupEditClicked(btn,rowRefEncoded) {
+  const rowRef=JSON.parse(decodeURIComponent(rowRefEncoded));
+  const editDiv=document.getElementById("edit-"+rowRef.rowIdx);
+  if(!editDiv) return;
+  if(editDiv.style.display!=="none"){editDiv.style.display="none";return;}
+  editDiv.style.display="block";
+  if(tokenIsValid()&&authAuthorised) showStatusPicker(editDiv,rowRef);
+  else if(tokenIsValid()) showEditMsg(editDiv,"Your account is not on the authorised list.","error");
+  else{pendingEdit={editDiv,rowRef};showSignInPrompt(editDiv);}
 }
-
 function showSignInPrompt(editDiv) {
-  editDiv.innerHTML = `
-    <div class="popup-auth-msg">Sign in with Google to edit — your account will be checked against the authorised list.</div>
+  editDiv.innerHTML=`
+    <div class="popup-auth-msg">Sign in with Google to edit.</div>
     <button class="popup-signin-btn" onclick="triggerSignIn()">
       <svg width="16" height="16" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 6.293C4.672 4.166 6.656 3.58 9 3.58z"/></svg>
       Sign in with Google
     </button>`;
 }
-
 function triggerSignIn() {
-  if (typeof google === "undefined" || !google.accounts) { showEditMsg(pendingEdit?.editDiv, "Google Sign-In not loaded yet — try again in a moment.", "error"); return; }
-  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onGoogleSignIn, auto_select: true, cancel_on_tap_outside: false });
-  google.accounts.id.prompt(n => { if (n.isNotDisplayed() || n.isSkippedMoment()) useOAuthPopupFallback(); });
+  if(typeof google==="undefined"||!google.accounts){showEditMsg(pendingEdit?.editDiv,"Google Sign-In not loaded.","error");return;}
+  google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:onGoogleSignIn,auto_select:true,cancel_on_tap_outside:false});
+  google.accounts.id.prompt(n=>{if(n.isNotDisplayed()||n.isSkippedMoment())useOAuthPopupFallback();});
 }
-
 function useOAuthPopupFallback() {
   google.accounts.oauth2.initTokenClient({
-    client_id: GOOGLE_CLIENT_ID, scope: "openid email profile",
-    callback: async tr => {
-      if (tr.error) { if (pendingEdit) showEditMsg(pendingEdit.editDiv, "Sign-in failed: " + tr.error, "error"); return; }
-      try {
-        const info = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + tr.access_token } })).json();
-        await processSignIn(null, info.email, tr.access_token, info.sub);
-      } catch(e) { if (pendingEdit) showEditMsg(pendingEdit.editDiv, "Sign-in error: " + e.message, "error"); }
+    client_id:GOOGLE_CLIENT_ID,scope:"openid email profile",
+    callback:async tr=>{
+      if(tr.error){if(pendingEdit)showEditMsg(pendingEdit.editDiv,"Sign-in failed: "+tr.error,"error");return;}
+      try{
+        const info=await(await fetch("https://www.googleapis.com/oauth2/v3/userinfo",{headers:{Authorization:"Bearer "+tr.access_token}})).json();
+        await processSignIn(null,info.email,tr.access_token);
+      }catch(e){if(pendingEdit)showEditMsg(pendingEdit.editDiv,"Sign-in error: "+e.message,"error");}
     }
-  }).requestAccessToken({ prompt: "select_account" });
+  }).requestAccessToken({prompt:"select_account"});
+}
+async function onGoogleSignIn(response){await processSignIn(response.credential,null,null);}
+async function processSignIn(idToken,emailHint,accessToken) {
+  const editDiv=pendingEdit?.editDiv;
+  if(editDiv) showEditMsg(editDiv,"Checking authorisation…","");
+  try{
+    const payload=idToken?{action:"verify",idToken}:{action:"verify",accessToken,email:emailHint};
+    const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify(payload)})).json();
+    if(!data.ok){if(editDiv)showEditMsg(editDiv,data.error||"Verification failed.","error");return;}
+    authToken=idToken||accessToken; authTokenType=idToken?"idToken":"accessToken";
+    authEmail=data.email||emailHint; authExpiry=Date.now()+55*60*1000; authAuthorised=data.authorised===true;
+    if(authAuthorised){
+      if(cookieConsent()==="accepted") persistAuthSession();
+      else if(!cookieConsent()) showCookieBanner();
+    }
+    if(!authAuthorised){if(editDiv)showEditMsg(editDiv,`${authEmail} is not authorised.`,"error");return;}
+    if(pendingEdit){showStatusPicker(pendingEdit.editDiv,pendingEdit.rowRef);pendingEdit=null;}
+  }catch(e){if(editDiv)showEditMsg(editDiv,"Network error: "+e.message,"error");}
 }
 
-async function onGoogleSignIn(response) { await processSignIn(response.credential, null, null, null); }
-
-async function processSignIn(idToken, emailHint, accessToken) {
-  const editDiv = pendingEdit?.editDiv;
-  if (editDiv) showEditMsg(editDiv, "Checking authorisation…", "");
-  try {
-    const payload = idToken ? { action: "verify", idToken } : { action: "verify", accessToken, email: emailHint };
-    const data = await (await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) })).json();
-    if (!data.ok) { if (editDiv) showEditMsg(editDiv, data.error || "Verification failed.", "error"); return; }
-    authToken = idToken || accessToken; authTokenType = idToken ? "idToken" : "accessToken";
-    authEmail = data.email || emailHint; authExpiry = Date.now() + 55 * 60 * 1000; authAuthorised = data.authorised === true;
-    if (authAuthorised) {
-      if (cookieConsent() === "accepted") { persistAuthSession(); }
-      else if (!cookieConsent()) { showCookieBanner(); }
-    }
-    if (!authAuthorised) { if (editDiv) showEditMsg(editDiv, `${authEmail} is not on the authorised list.`, "error"); return; }
-    if (pendingEdit) { showStatusPicker(pendingEdit.editDiv, pendingEdit.rowRef); pendingEdit = null; }
-  } catch(e) { if (editDiv) showEditMsg(editDiv, "Network error: " + e.message, "error"); }
-}
-
-function showStatusPicker(editDiv, rowRef) {
-  const row     = allRoads.find(r => r._rowIdx === rowRef.rowIdx);
-  const current = statusKey(row?.Status || "");
-  editDiv.innerHTML = `
+function showStatusPicker(editDiv,rowRef) {
+  const row=allRoads.find(r=>r._rowIdx===rowRef.rowIdx);
+  const current=statusKey(row?.Status||"");
+  const hasPartial=row&&(row.partial_geometry||"-")!=="-";
+  const isInProgress=current==="inprogress";
+  const hasGeom=row&&parseWKT(row.road_geometry).length>0;
+  editDiv.innerHTML=`
     <div class="popup-user-line">
       <span>✓ ${escHtml(authEmail)}</span>
       <button class="popup-signout-link" onclick="signOut()">↩ sign out</button>
     </div>
     <div class="popup-status-select">
-      ${STATUSES.map(s => `
-        <button class="popup-status-option ${s.cls}${s.key === current ? " current" : ""}"
+      ${STATUSES.map(s=>`
+        <button class="popup-status-option ${s.cls}${s.key===current?" current":""}"
           data-row="${rowRef.rowIdx}" data-sheet-value="${s.sheetValue}">
-          ${s.label}${s.key === current ? " ✓" : ""}
+          ${s.label}${s.key===current?" ✓":""}
         </button>`).join("")}
-    </div>`;
-  editDiv.querySelectorAll(".popup-status-option:not(.current)").forEach(btn => {
-    btn.addEventListener("click", function() { submitStatusChange(parseInt(this.dataset.row, 10), this.dataset.sheetValue, this); });
+    </div>
+    ${isInProgress&&hasGeom?`
+    <button class="popup-partial-btn${hasPartial?" has-data":""}" onclick="openPartialEditor(${rowRef.rowIdx})">
+      ✏ ${hasPartial?"Edit":"Add"} partial completion
+    </button>`:""}
+  `;
+  editDiv.querySelectorAll(".popup-status-option:not(.current)").forEach(btn=>{
+    btn.addEventListener("click",function(){submitStatusChange(parseInt(this.dataset.row,10),this.dataset.sheetValue,this);});
   });
 }
 
-async function submitStatusChange(rowIdx, sheetValue, btn) {
-  const editDiv = btn.closest(".popup-edit-area");
-  editDiv.innerHTML = `<div class="popup-saving">Saving…</div>`;
-  try {
-    const tokenPayload = authTokenType === "idToken" ? { idToken: authToken } : { accessToken: authToken };
-    const data = await (await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify({ action: "update", rowIndex: rowIdx, newStatus: sheetValue, ...tokenPayload }) })).json();
-    if (!data.ok) { showEditMsg(editDiv, data.error || "Save failed.", "error"); return; }
-    const row = allRoads.find(r => r._rowIdx === rowIdx);
-    if (row) {
-      row.Status = sheetValue;
-      [...renderedLayers.keys()].filter(k => k.startsWith(rowIdx + "_")).forEach(k => {
-        const entry = renderedLayers.get(k);
-        if (entry) { entry.layers.forEach(l => { if (layerGroups[entry.ward]) layerGroups[entry.ward].removeLayer(l); }); renderedLayers.delete(k); }
+function showEditMsg(editDiv,msg,type){if(!editDiv)return;editDiv.innerHTML=`<div class="popup-auth-msg ${type}">${escHtml(msg)}</div>`;}
+
+async function submitStatusChange(rowIdx,sheetValue,btn) {
+  const editDiv=btn.closest(".popup-edit-area");
+  editDiv.innerHTML=`<div class="popup-saving">Saving…</div>`;
+  try{
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"update",rowIndex:rowIdx,newStatus:sheetValue,...tp})})).json();
+    if(!data.ok){showEditMsg(editDiv,data.error||"Save failed.","error");return;}
+    const row=allRoads.find(r=>r._rowIdx===rowIdx);
+    if(row){
+      row.Status=sheetValue;
+      [...renderedLayers.keys()].filter(k=>k.startsWith(rowIdx+"_")).forEach(k=>{
+        const entry=renderedLayers.get(k);
+        if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
       });
       renderLines(); updateStats(); updateCountBadges();
+      recomputeAndSaveChecksum();
     }
-    showEditMsg(editDiv, `Saved as "${getStatus(sheetValue).label}"`, "success");
-    setTimeout(() => { if (editDiv) editDiv.style.display = "none"; }, 1800);
-  } catch(e) { showEditMsg(editDiv, "Network error: " + e.message, "error"); }
+    showEditMsg(editDiv,`Saved as "${getStatus(sheetValue).label}"`,"success");
+    setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
+  }catch(e){showEditMsg(editDiv,"Network error: "+e.message,"error");}
 }
 
 function signOut() {
-  authToken = null; authTokenType = "idToken"; authEmail = null; authExpiry = 0; authAuthorised = false;
+  authToken=null;authTokenType="idToken";authEmail=null;authExpiry=0;authAuthorised=false;
   localStorage.removeItem(LS_AUTH);
-  if (typeof google !== "undefined" && google.accounts) google.accounts.id.disableAutoSelect();
-  document.querySelectorAll(".popup-edit-area").forEach(el => el.style.display = "none");
+  if(typeof google!=="undefined"&&google.accounts) google.accounts.id.disableAutoSelect();
+  document.querySelectorAll(".popup-edit-area").forEach(el=>el.style.display="none");
 }
 
-function showEditMsg(editDiv, msg, type) { if (!editDiv) return; editDiv.innerHTML = `<div class="popup-auth-msg ${type}">${escHtml(msg)}</div>`; }
+// ── Partial geometry editor ───────────────────────────────────────────────────
+// Called from the popup when "Add / Edit partial completion" is clicked.
+// Closes the popup and enters drawing mode for this road.
+function openPartialEditor(rowIdx) {
+  const row=allRoads.find(r=>r._rowIdx===rowIdx);
+  if(!row) return;
+  const geomData=getRoadGeomData(row);
+  if(!geomData) return;
+  // Close popup
+  map.closePopup();
+  // Enter drawing mode
+  enterDrawMode(row,geomData);
+}
+
+function setDrawHint(msg) {
+  const el=document.getElementById("draw-hint");
+  if(msg){el.textContent=msg;el.classList.add("visible");}
+  else{el.classList.remove("visible");}
+}
+
+function setLayersInteractive(interactive) {
+  // Enable or disable all road hit layers so draw-mode taps reach the map click handler
+  renderedLayers.forEach(entry=>{
+    entry.layers.forEach(l=>{
+      if(l.options&&l.options.weight===20) { // hit layers only (transparent, weight 20)
+        if(interactive) l.addInteractiveTarget(l._path||l._renderer&&l._renderer._container);
+        l.options.interactive=interactive;
+        if(l._path) l._path.style.pointerEvents=interactive?"visiblePainted":"none";
+      }
+    });
+  });
+}
+
+function enterDrawMode(road,geomData) {
+  drawState="place-start";
+  drawRoad=road;
+  drawSegPts=geomData.pts;
+  drawSegBreaks=geomData.breaks;
+  drawStartProp=null;
+  drawEndProp=null;
+  drawBothSides=false;
+  drawFlipped=false;
+  drawActiveHandle=null;
+
+  // Disable road hit layers so taps pass through to the map click handler
+  setLayersInteractive(false);
+
+  // Highlight road
+  drawRoadHighlightLayers.forEach(l=>partialLayerGroup.removeLayer(l));
+  drawRoadHighlightLayers=[];
+  geomData.segs.forEach(seg=>{
+    const hl=L.polyline(seg,{color:"#fff",weight:10,opacity:0.2,interactive:false});
+    hl.addTo(partialLayerGroup); drawRoadHighlightLayers.push(hl);
+  });
+
+  document.getElementById("map").classList.add("draw-mode");
+  setDrawHint("Tap road to place start point");
+
+  // If existing sections present, render them faintly so user can see what's there,
+  // then start fresh so a new section can be drawn and appended.
+  const existing=parsePartialGeom(road.partial_geometry||"");
+  if(existing.length) {
+    setDrawHint(`${existing.length} existing section(s) — tap road to add another, or Save with no selection to keep as-is, or Clear All to remove`);
+  }
+  // Always start in place-start so user draws a fresh section.
+  // On save, new section is appended to existing ones.
+}
+
+function exitDrawMode(geomData) {
+  drawState=null; drawRoad=null;
+  drawPreviewLayers.forEach(l=>partialLayerGroup.removeLayer(l)); drawPreviewLayers=[];
+  drawRoadHighlightLayers.forEach(l=>partialLayerGroup.removeLayer(l)); drawRoadHighlightLayers=[];
+  if(drawHandleStart){partialLayerGroup.removeLayer(drawHandleStart);drawHandleStart=null;}
+  if(drawHandleEnd  ){partialLayerGroup.removeLayer(drawHandleEnd);  drawHandleEnd=null;}
+  drawActiveHandle=null;
+  // Re-enable road hit layers
+  setLayersInteractive(true);
+  document.getElementById("map").classList.remove("draw-mode");
+  setDrawHint(null);
+  // Re-render partials cleanly
+  renderAllPartials();
+}
+
+function handleDrawClick(e) {
+  if(!drawRoad) return;
+  const geomData=getRoadGeomData(drawRoad);
+  if(!geomData) return;
+
+  const snapped=snapToRoad(e.latlng,geomData.pts,geomData.cumLens);
+
+  if(drawState==="place-start") {
+    // First tap: place start handle, move to place-end state
+    drawStartProp=snapped.prop;
+    drawEndProp=null;
+    drawState="place-end";
+    placeHandles(geomData);
+    setDrawHint("Tap road to place end point");
+
+  } else if(drawState==="place-end") {
+    // Second tap: place end handle, enter adjust state
+    drawEndProp=snapped.prop;
+    if(Math.abs(drawEndProp-drawStartProp)<0.001) return; // too close, ignore
+    if(drawStartProp>drawEndProp){[drawStartProp,drawEndProp]=[drawEndProp,drawStartProp];}
+    drawState="adjust";
+    drawActiveHandle=null;
+    placeHandles(geomData);
+    updateDrawPreview(geomData);
+    showDrawControls(geomData);
+    setDrawHint("Tap a handle to select it, then tap road to move · Save when done");
+
+  } else if(drawState==="adjust") {
+    if(drawActiveHandle) {
+      // An active handle is selected — move it to tapped position
+      if(drawActiveHandle==="start") {
+        drawStartProp=snapped.prop;
+        if(drawStartProp>=drawEndProp) drawStartProp=Math.max(0,drawEndProp-0.001);
+      } else {
+        drawEndProp=snapped.prop;
+        if(drawEndProp<=drawStartProp) drawEndProp=Math.min(1,drawStartProp+0.001);
+      }
+      drawActiveHandle=null;
+      placeHandles(geomData);
+      updateDrawPreview(geomData);
+      setDrawHint("Tap a handle to select it, then tap road to move · Save when done");
+    }
+    // If no handle active, tapping the map does nothing (use handle tap to select first)
+  }
+}
+
+function placeHandles(geomData) {
+  if(drawHandleStart){partialLayerGroup.removeLayer(drawHandleStart);drawHandleStart=null;}
+  if(drawHandleEnd  ){partialLayerGroup.removeLayer(drawHandleEnd);  drawHandleEnd=null;}
+  if(drawStartProp!==null) {
+    const pt=interpolateAlongPts(geomData.pts,geomData.cumLens,drawStartProp);
+    drawHandleStart=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:PARTIAL_COLOUR,fillOpacity:1,weight:2,interactive:true,draggable:false,zIndexOffset:1000});
+    drawHandleStart.addTo(partialLayerGroup);
+    drawHandleStart.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="start";setDrawHint("Tap road to move start point");});
+  }
+  if(drawEndProp!==null) {
+    const pt=interpolateAlongPts(geomData.pts,geomData.cumLens,drawEndProp);
+    drawHandleEnd=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:"#0a4a28",fillOpacity:1,weight:2,interactive:true,draggable:false,zIndexOffset:1000});
+    drawHandleEnd.addTo(partialLayerGroup);
+    drawHandleEnd.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="end";setDrawHint("Tap road to move end point");});
+  }
+}
+
+function updateDrawPreview(geomData) {
+  drawPreviewLayers.forEach(l=>partialLayerGroup.removeLayer(l));
+  drawPreviewLayers=[];
+  if(drawStartProp===null||drawEndProp===null) return;
+  const t0=Math.min(drawStartProp,drawEndProp);
+  const t1=Math.max(drawStartProp,drawEndProp);
+  // Build pts between t0 and t1
+  const pts=geomData.pts, cl=geomData.cumLens;
+  const p0=interpolateAlongPts(pts,cl,t0);
+  const p1=interpolateAlongPts(pts,cl,t1);
+  let subset=[p0];
+  pts.forEach((p,i)=>{const prop=geomData.total>0?cl[i]/geomData.total:0;if(prop>t0&&prop<t1)subset.push(p);});
+  subset.push(p1);
+  if(subset.length<2) return;
+
+  if(drawBothSides) {
+    const l=L.polyline(subset,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_BOTH,opacity:0.85,interactive:false,dashArray:"8 4"});
+    l.addTo(partialLayerGroup); drawPreviewLayers.push(l);
+  } else {
+    // drawFlipped negates the offset so preview matches the saved render direction
+    const offsetPts=offsetPolyline(subset, drawFlipped ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
+    const l=L.polyline(offsetPts,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_SINGLE,opacity:0.85,interactive:false,dashArray:"8 4"});
+    l.addTo(partialLayerGroup); drawPreviewLayers.push(l);
+  }
+}
+
+// Show the control panel (flip / both-sides toggle / save / cancel / clear)
+// rendered as a popup at the mid-point of the selection
+function showDrawControls(geomData) {
+  // Remove any old controls popup
+  map.eachLayer(l=>{if(l._isDrawControls)map.removeLayer(l);});
+  if(drawStartProp===null||drawEndProp===null) return;
+  const midProp=(drawStartProp+drawEndProp)/2;
+  const midPt=interpolateAlongPts(geomData.pts,geomData.cumLens,midProp);
+  const hasExisting=(drawRoad.partial_geometry||"-")!=="-";
+
+  const content=document.createElement("div");
+  content.innerHTML=`
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:8px;">Partial completion</div>
+    <div class="popup-partial-actions" id="draw-controls-inner">
+      <button class="popup-partial-action-btn${drawBothSides?" active":""}" id="draw-btn-both">Both sides</button>
+      <button class="popup-partial-action-btn${!drawBothSides?" active":""}" id="draw-btn-single">One side</button>
+      <button class="popup-partial-action-btn" id="draw-btn-flip" style="${drawBothSides?"display:none":""}">⇄ Flip side</button>
+    </div>
+    <div class="popup-partial-actions" style="margin-top:6px;">
+      <button class="popup-partial-action-btn active" id="draw-btn-save" style="border-color:var(--darkgreen);color:#4ecb82;">✓ Save</button>
+      <button class="popup-partial-action-btn" id="draw-btn-cancel">✕ Cancel</button>
+      ${hasExisting?`<button class="popup-partial-action-btn danger" id="draw-btn-clear">🗑 Clear</button>`:""}
+    </div>
+    <div class="popup-partial-status" id="draw-save-status"></div>
+  `;
+
+  const popup=L.popup({closeButton:false,closeOnClick:false,autoClose:false,className:""})
+    .setLatLng(midPt).setContent(content).openOn(map);
+  popup._isDrawControls=true;
+
+  content.querySelector("#draw-btn-both").addEventListener("click",()=>{
+    drawBothSides=true;
+    content.querySelector("#draw-btn-both").classList.add("active");
+    content.querySelector("#draw-btn-single").classList.remove("active");
+    content.querySelector("#draw-btn-flip").style.display="none";
+    updateDrawPreview(geomData);
+  });
+  content.querySelector("#draw-btn-single").addEventListener("click",()=>{
+    drawBothSides=false;
+    content.querySelector("#draw-btn-single").classList.add("active");
+    content.querySelector("#draw-btn-both").classList.remove("active");
+    content.querySelector("#draw-btn-flip").style.display="";
+    updateDrawPreview(geomData);
+  });
+  content.querySelector("#draw-btn-flip").addEventListener("click",()=>{
+    // Toggle flip flag — negates offset direction in preview and saved render
+    drawFlipped=!drawFlipped;
+    updateDrawPreview(geomData);
+  });
+  content.querySelector("#draw-btn-save").addEventListener("click",()=>savePartialGeom(geomData,content.querySelector("#draw-save-status")));
+  content.querySelector("#draw-btn-cancel").addEventListener("click",()=>{exitDrawMode(geomData);map.closePopup();});
+  const clearBtn=content.querySelector("#draw-btn-clear");
+  if(clearBtn) clearBtn.addEventListener("click",()=>clearPartialGeom(geomData,content.querySelector("#draw-save-status")));
+}
+
+async function savePartialGeom(geomData,statusEl) {
+  if(drawStartProp===null||drawEndProp===null) return;
+  const t0=Math.min(drawStartProp,drawEndProp);
+  const t1=Math.max(drawStartProp,drawEndProp);
+  const side=drawBothSides?"B":(drawFlipped?"F":"S");
+
+  // Convert global props to per-segment props
+  const segProps=globalPropToSegProps(t0,t1,geomData);
+  if(!segProps.length){
+    // No new section drawn — if there's existing data just close without changing
+    if((drawRoad.partial_geometry||"-")!=="-"){
+      exitDrawMode(geomData); map.closePopup(); renderAllPartials(); updateStats();
+    } else {
+      if(statusEl) statusEl.textContent="No section drawn — tap road to place points first.";
+    }
+    return;
+  }
+
+  const newParts=segProps.map(sp=>({segIdx:sp.segIdx,t0:sp.t0,t1:sp.t1,side}));
+  // Append to any existing sections rather than replacing them
+  const existingParts=parsePartialGeom(drawRoad.partial_geometry||"");
+  const allParts=[...existingParts,...newParts];
+  const encoded=encodePartialGeom(allParts);
+
+  if(statusEl) statusEl.textContent="Saving…";
+  try{
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({
+      action:"partial",rowIndex:drawRoad._rowIdx,partialGeometry:encoded,...tp
+    })})).json();
+    if(!data.ok){if(statusEl)statusEl.textContent="Save failed: "+(data.error||"");return;}
+    // Update in memory
+    drawRoad.partial_geometry=encoded;
+    if(statusEl) statusEl.textContent="Saved ✓";
+    recomputeAndSaveChecksum();
+    setTimeout(()=>{exitDrawMode(geomData);map.closePopup();renderAllPartials();updateStats();},1200);
+  }catch(e){if(statusEl)statusEl.textContent="Network error: "+e.message;}
+}
+
+async function clearPartialGeom(geomData,statusEl) {
+  if(statusEl) statusEl.textContent="Clearing…";
+  try{
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({
+      action:"partial",rowIndex:drawRoad._rowIdx,partialGeometry:"-",...tp
+    })})).json();
+    if(!data.ok){if(statusEl)statusEl.textContent="Clear failed: "+(data.error||"");return;}
+    drawRoad.partial_geometry="-";
+    if(statusEl) statusEl.textContent="Cleared ✓";
+    recomputeAndSaveChecksum();
+    setTimeout(()=>{exitDrawMode(geomData);map.closePopup();renderAllPartials();updateStats();},1200);
+  }catch(e){if(statusEl)statusEl.textContent="Network error: "+e.message;}
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async function boot() {
   restoreAuthSession();
-  const cached = loadFromCache();
-  if (cached && cached.rows && cached.rows.length) {
-    document.getElementById("loading-msg").textContent = "Loading from cache…";
-    lastChecksum = cached.checksum;
-    lastLoadTime = cached.time;
-    ingestRows(cached.rows, cached.checksum, cached.time, true);
+  const cached=loadFromCache();
+  if(cached&&cached.rows&&cached.rows.length){
+    document.getElementById("loading-msg").textContent="Loading from cache…";
+    lastChecksum=cached.checksum; lastLoadTime=cached.time;
+    ingestRows(cached.rows,cached.checksum,cached.time,true);
     document.getElementById("loading").classList.add("hidden");
-    setSyncState("stale", "Cached · checking…");
+    setSyncState("stale","Cached · checking…");
     checkForUpdates(false);
-  } else {
-    checkForUpdates(false);
-  }
+  } else { checkForUpdates(false); }
 })();
 </script>
 </body>
