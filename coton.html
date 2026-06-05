@@ -10,11 +10,37 @@
   /* ── Control panel ── */
   .ctrl{
     position:absolute;top:10px;right:10px;z-index:1000;
-    background:white;padding:16px;border-radius:12px;
+    background:white;border-radius:12px;
     box-shadow:0 3px 16px rgba(0,0,0,0.25);
-    min-width:220px;max-width:calc(100vw - 20px);max-height:90vh;overflow-y:auto
+    min-width:220px;max-width:calc(100vw - 20px);
+    overflow:hidden
   }
-  .ctrl h3{margin:0 0 10px;font-size:16px;font-weight:700;color:#222;letter-spacing:-0.3px}
+  /* Header row — always visible */
+  .ctrl-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 16px;cursor:pointer;user-select:none;
+    gap:10px
+  }
+  .ctrl-header h3{margin:0;font-size:16px;font-weight:700;color:#222;letter-spacing:-0.3px;flex:1}
+  .ctrl-toggle{
+    width:32px;height:32px;border-radius:8px;border:none;
+    background:#f2f2f2;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;transition:background .15s
+  }
+  .ctrl-toggle:active{background:#e0e0e0}
+  .ctrl-toggle svg{transition:transform .25s ease}
+  .ctrl.collapsed .ctrl-toggle svg{transform:rotate(180deg)}
+  /* Collapsible body */
+  .ctrl-body{
+    padding:0 16px 16px;
+    max-height:80vh;overflow-y:auto;
+    transition:max-height .3s ease, padding .3s ease, opacity .25s ease;
+    opacity:1
+  }
+  .ctrl.collapsed .ctrl-body{
+    max-height:0;padding-top:0;padding-bottom:0;opacity:0;pointer-events:none
+  }
   .ctrl label{display:block;font-weight:600;margin-bottom:8px;font-size:13px;color:#555;text-transform:uppercase;letter-spacing:0.5px}
 
   /* ── BIG tap-friendly select ── */
@@ -101,7 +127,7 @@
   <div class="geo-sheet">
     <div class="geo-icon">📍</div>
     <h2>Show your location?</h2>
-    <p>Track where you are on the map. Your location data is kept private to your phone/device and cannot be shared or uploaded.</p>
+    <p>See where you are on the map while out canvassing. Your location stays on your device and is never shared.</p>
     <div class="geo-btns">
       <button class="geo-yes" onclick="requestLocation()">Yes, show my location</button>
       <button class="geo-no" onclick="dismissModal()">Not now</button>
@@ -109,20 +135,27 @@
   </div>
 </div>
 
-<div class="ctrl">
-  <h3>🗺 Coton Ward Routes</h3>
-  <label>Select Route (sorted by difficulty)</label>
-  <select id="sel"><option value="all">— Show All Routes —</option></select>
-  <button id="locBtn" onclick="toggleLocation()">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
-    Show my location
-  </button>
-  <div id="info"></div>
-  <div class="legend">
-    <div class="legend-item"><div class="legend-swatch" style="background:#4daf4a"></div>Easy (&lt;200 res)</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#377eb8"></div>Medium (200–300 res)</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#e6550d"></div>Large (&gt;300 res)</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#e41a1c;height:5px"></div>Selected route</div>
+<div class="ctrl" id="ctrl">
+  <div class="ctrl-header" onclick="togglePanel()">
+    <h3>🗺 Coton Ward Routes</h3>
+    <button class="ctrl-toggle" aria-label="Toggle panel">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    </button>
+  </div>
+  <div class="ctrl-body">
+    <label>Select Route (sorted by difficulty)</label>
+    <select id="sel"><option value="all">— Show All Routes —</option></select>
+    <button id="locBtn" onclick="toggleLocation()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+      Show my location
+    </button>
+    <div id="info"></div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#4daf4a"></div>Easy (&lt;200 res)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#377eb8"></div>Medium (200–300 res)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#e6550d"></div>Large (&gt;300 res)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#e41a1c;height:5px"></div>Selected route</div>
+    </div>
   </div>
 </div>
 
@@ -338,6 +371,11 @@ function onLocationError(err) {
 // Show geolocation modal on load if supported
 if (!navigator.geolocation) {
   geoModal.style.display = 'none';
+}
+
+/* ── Panel collapse ── */
+function togglePanel() {
+  document.getElementById('ctrl').classList.toggle('collapsed');
 }
 </script>
 </body></html>
