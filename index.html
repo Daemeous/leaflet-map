@@ -433,9 +433,9 @@ function snapToRoad(clickLatLng, pts, cumLens) {
 
 // Extract pts/cumLens for a road's combined geometry (all segments concatenated)
 function getRoadGeomData(road) {
-  const segs=parseWKT(road.road_geometry);
-  if(!segs.length) return null;
-  const segs = sortSegmentsTopologically(rawSegs); 
+  const rawSegs=parseWKT(road.road_geometry);
+  if(!rawSegs.length) return null;
+  const segs = sortSegmentsTopologically(rawSegs);
   const pts=segs.flat();
   const cumLens=cumulativeLengths(pts);
   // segBreaks: for each segment, its start/end proportion of total length
