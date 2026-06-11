@@ -435,6 +435,7 @@ function snapToRoad(clickLatLng, pts, cumLens) {
 function getRoadGeomData(road) {
   const segs=parseWKT(road.road_geometry);
   if(!segs.length) return null;
+  const segs = sortSegmentsTopologically(rawSegs); 
   const pts=segs.flat();
   const cumLens=cumulativeLengths(pts);
   // segBreaks: for each segment, its start/end proportion of total length
@@ -1249,6 +1250,41 @@ function placeHandles(geomData) {
     drawHandleEnd.addTo(partialLayerGroup);
     drawHandleEnd.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="end";setDrawHint("Tap road to move end point");});
   }
+}
+
+ function sortSegmentsTopologically(segs) {
+  if (segs.length <= 1) return segs;
+  const SNAP_THRESH = 0.0003; // degrees — ~30m tolerance for endpoint matching
+
+  function dist(a, b) {
+    return Math.hypot(a[0]-b[0], a[1]-b[1]);
+  }
+  function endsMatch(a, b) {
+    // Does end of a connect to start or end of b?
+    const endA = a[a.length-1];
+    return dist(endA, b[0]) < SNAP_THRESH || dist(endA, b[b.length-1]) < SNAP_THRESH;
+  }
+  function maybeFlip(seg, prevEnd) {
+    // Flip segment if its start is further from prevEnd than its end
+    if (dist(prevEnd, seg[0]) <= dist(prevEnd, seg[seg.length-1])) return seg;
+    return [...seg].reverse();
+  }
+
+  const remaining = segs.map(s => [...s]);
+  const sorted = [remaining.splice(0, 1)[0]];
+
+  while (remaining.length) {
+    const prevEnd = sorted[sorted.length-1][sorted[sorted.length-1].length-1];
+    // Find closest next segment by endpoint proximity
+    let bestIdx = 0, bestDist = Infinity;
+    remaining.forEach((seg, i) => {
+      const d = Math.min(dist(prevEnd, seg[0]), dist(prevEnd, seg[seg.length-1]));
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    });
+    const next = remaining.splice(bestIdx, 1)[0];
+    sorted.push(maybeFlip(next, prevEnd));
+  }
+  return sorted;
 }
 
 function updateDrawPreview(geomData) {
