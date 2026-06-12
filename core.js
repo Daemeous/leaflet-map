@@ -87,7 +87,7 @@
     </div>
     <div id="stats">
       <div id="stats-top">${buildStatsTop()}</div>
-      <div id="stats-bottom">
+      <div id="stats-bottom" style="display:none">
         <span class="res-label">🏠 Est. Residences served</span>
         <span><span class="res-value" id="stat-residences">…</span><span class="res-sub" id="stat-residences-pct"></span></span>
       </div>
@@ -549,12 +549,15 @@
   function updateResidencesStat() {
     const resEl=document.getElementById("stat-residences");
     const resPctEl=document.getElementById("stat-residences-pct");
+    const statsBottom=document.getElementById("stats-bottom");
     if(!resEl) return;
-    const served=residencesServedTotal??computeEstimatedResidencesServed();
-    resEl.textContent=Math.round(served).toLocaleString();
     let total=0;
     allRoads.forEach(r=>{total+=getResidences(r);});
-    if(resPctEl&&total>0) {
+    if(total<=0) { if(statsBottom) statsBottom.style.display="none"; return; }
+    if(statsBottom) statsBottom.style.display="";
+    const served=residencesServedTotal??computeEstimatedResidencesServed();
+    resEl.textContent=Math.round(served).toLocaleString();
+    if(resPctEl) {
       const pct=(served/total*100).toFixed(1);
       resPctEl.textContent=` / ${Math.round(total).toLocaleString()} (${pct}%)`;
     }
