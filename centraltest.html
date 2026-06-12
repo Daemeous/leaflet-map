@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leafleting Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<script>
+// ── Per-deployment configuration ────────────────────────────────────────────
+window.MAP_CONFIG = {
+  SHEET_ID:  "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q",
+  SHEET_GID: "2107159853",
+  CHECKSUM_GID: "1371223354",
+
+  GOOGLE_CLIENT_ID: "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com",
+  APPS_SCRIPT_URL:  "https://script.google.com/macros/s/AKfycbyeyfwzYRVEUPse35hzVyPJAtOBut7swG4YlGA0hu1qQQACijzJoiZ6O2uMfmJGnJg4/exec",
+
+  LS_SUFFIX: "2107159853", // unique per deployment — used for localStorage keys
+
+  TITLE:    "Leafleting Map",
+  SUBTITLE: "Filter roads by ward or completion status.",
+
+  INITIAL_VIEW: [52.8, -2.12],
+  INITIAL_ZOOM: 12
+};
+</script>
+
+<!-- External libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<!-- Shared application code -->
+<script src="core.js"></script>
+</body>
+</html>
