@@ -162,6 +162,10 @@
   let renderedLayers = new Map();  // segKey → {layers, spec, ward}
   let partialLayers  = new Map();  // rowIdx → [L.layer, ...]
 
+  // ── Selection fade-out timer ──────────────────────────────────────────────────
+  let selectionFadeTimer = null;
+  const SELECTION_FADE_DELAY_MS = 4000; // time before opacity fades back to normal
+
   // ── Drawing state ─────────────────────────────────────────────────────────────
   // drawState machine: null | 'place-start' | 'place-end' | 'adjust'
   let drawState      = null;
@@ -807,8 +811,14 @@
   }
   function updateDropdownFocus(opts){opts.forEach((el,i)=>el.classList.toggle("focused",i===dropdownFocusIdx));if(opts[dropdownFocusIdx])opts[dropdownFocusIdx].scrollIntoView({block:"nearest"});}
   function selectRoad(idx,e){e.preventDefault();const dd=document.getElementById("road-dropdown");if(!dd._matches)return;document.getElementById("road-search-input").value=dd._matches[idx].name;selectedRoadName=null;activateRoad(dd._matches[idx]);closeDropdown();}
+
+  // ── Road activation with animated fly-to and timed fade-out ──────────────────
   function activateRoad(road) {
+    // Cancel any pending fade-out timer
+    if(selectionFadeTimer) { clearTimeout(selectionFadeTimer); selectionFadeTimer=null; }
+
     selectedRoadName=road.name;
+
     const fitPts=[],fallPts=[];
     road.rows.forEach(row=>{
       const ward=(row.Ward||"Unknown").trim(); if(!activeWards.has(ward)) return;
@@ -819,15 +829,35 @@
       if(activeStatus.has(statusKey(row.Status))) pts.forEach(p=>fitPts.push(p));
       pts.forEach(p=>fallPts.push(p));
     });
+
     const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
-    if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1),{maxZoom:17});
+    if(pts.length) {
+      const bounds=L.latLngBounds(pts).pad(0.1);
+      // Animated fly — duration scales with distance so it never feels sluggish or too fast
+      map.flyToBounds(bounds, { maxZoom:17, duration:0.8, easeLinearity:0.5 });
+    }
+
+    renderLines();
+
+    // Schedule fade back to normal opacity after a few seconds
+    selectionFadeTimer=setTimeout(()=>{
+      selectedRoadName=null;
+      selectionFadeTimer=null;
+      renderLines();
+    }, SELECTION_FADE_DELAY_MS);
+  }
+
+  function clearSelection(){
+    if(selectionFadeTimer){clearTimeout(selectionFadeTimer);selectionFadeTimer=null;}
+    if(!selectedRoadName)return;
+    selectedRoadName=null;
     renderLines();
   }
-  function clearSelection(){if(!selectedRoadName)return;selectedRoadName=null;renderLines();}
   function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
   function clearRoadSearch(){document.getElementById("road-search-input").value="";document.getElementById("road-search-clear").style.display="none";clearSelection();closeDropdown();}
   map.on("click",e=>{
     if(drawState) { handleDrawClick(e); return; }
+    // A map click also cancels the fade timer and clears selection immediately
     clearSelection();
   });
   document.addEventListener("click",e=>{if(!e.target.closest(".road-search-wrap"))closeDropdown();});
@@ -999,9 +1029,47 @@
     document.getElementById("map").classList.add("draw-mode");
     setDrawHint("Tap road to place start point");
 
-    const existing=parsePartialGeom(road.partial_geometry||"");
-    if(existing.length) {
-      setDrawHint(`${existing.length} existing section(s) — tap road to add another, or Save with no selection to keep as-is, or Clear All to remove`);
+    // Show immediate controls: cancel always, clear only if existing data
+    showDrawEntryControls(geomData);
+  }
+
+  // ── Draw-mode entry controls (shown before any points are placed) ─────────────
+  function showDrawEntryControls(geomData) {
+    map.eachLayer(l=>{if(l._isDrawControls)map.removeLayer(l);});
+
+    const hasExisting=(drawRoad.partial_geometry||"-")!=="-";
+    const existingParts=parsePartialGeom(drawRoad.partial_geometry||"");
+    const existingCount=existingParts.length;
+
+    // Position the controls panel near the centre of the road
+    const midProp=0.5;
+    const midPt=interpolateAlongPts(geomData.pts,geomData.cumLens,midProp);
+
+    const content=document.createElement("div");
+    content.innerHTML=`
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:8px;">Partial completion</div>
+      ${hasExisting?`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${existingCount} existing section${existingCount!==1?"s":""} — tap road to add another</div>`:`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Tap the road to place start &amp; end points</div>`}
+      <div class="popup-partial-actions">
+        <button class="popup-partial-action-btn" id="draw-entry-cancel">✕ Cancel</button>
+        ${hasExisting?`<button class="popup-partial-action-btn danger" id="draw-entry-clear">🗑 Clear all</button>`:""}
+      </div>
+      <div class="popup-partial-status" id="draw-entry-status"></div>
+    `;
+
+    const popup=L.popup({closeButton:false,closeOnClick:false,autoClose:false,className:""})
+      .setLatLng(midPt).setContent(content).openOn(map);
+    popup._isDrawControls=true;
+
+    content.querySelector("#draw-entry-cancel").addEventListener("click",()=>{
+      exitDrawMode(geomData);
+      map.closePopup();
+    });
+
+    const clearBtn=content.querySelector("#draw-entry-clear");
+    if(clearBtn) {
+      clearBtn.addEventListener("click",()=>{
+        clearPartialGeom(geomData, content.querySelector("#draw-entry-status"));
+      });
     }
   }
 
@@ -1029,6 +1097,8 @@
       drawStartProp=snapped.prop;
       drawEndProp=null;
       drawState="place-end";
+      // Close the entry controls popup when the user starts placing points
+      map.eachLayer(l=>{if(l._isDrawControls)map.removeLayer(l);});
       placeHandles(geomData);
       setDrawHint("Tap road to place end point");
 
