@@ -153,7 +153,10 @@
   let residencesServedTotal = null;
   let pollTimer        = null;
   let isChecking       = false;
-  let selectedRoadName = null;
+  let selectedRoadName   = null;
+  let fadeCurrent        = 0.85; // current opacity of non-selected roads (animated)
+  let fadeAnimFrame      = null; // rAF handle for fade animation
+  let fadeTimer          = null; // timer before fade-back begins
   let authToken      = null;
   let authTokenType  = "idToken";
   let authEmail      = null;
@@ -161,12 +164,6 @@
   let authAuthorised = false;
   let renderedLayers = new Map();  // segKey → {layers, spec, ward}
   let partialLayers  = new Map();  // rowIdx → [L.layer, ...]
-
-  // ── Selection / target-box state ─────────────────────────────────────────────
-  let selectionFadeTimer  = null;   // fades opacity back after road highlight
-  let targetBoxAnimFrame  = null;   // rAF handle for SVG box shrink animation
-  let transitionOverlay   = null;   // blur+SVG overlay div during transition
-  const SELECTION_FADE_DELAY_MS = 4000;
 
   // ── Drawing state ─────────────────────────────────────────────────────────────
   // drawState machine: null | 'place-start' | 'place-end' | 'adjust'
@@ -487,7 +484,7 @@
     if(!activeStatus.has(sk)||!activeWards.has(ward)) return null;
     const hasSel=!!selectedRoadName;
     const isSel=hasSel&&(road.Street||"").trim().toLowerCase()===selectedRoadName.toLowerCase();
-    const opac=hasSel&&!isSel?0.15:0.85;
+    const opac=hasSel&&!isSel?fadeCurrent:0.85;
     return {colour:colourFor(road.Status),weight:weightFor(road.Status),opac,isSel,sk,ward};
   }
 
@@ -813,28 +810,34 @@
   }
   function updateDropdownFocus(opts){opts.forEach((el,i)=>el.classList.toggle("focused",i===dropdownFocusIdx));if(opts[dropdownFocusIdx])opts[dropdownFocusIdx].scrollIntoView({block:"nearest"});}
   function selectRoad(idx,e){e.preventDefault();const dd=document.getElementById("road-dropdown");if(!dd._matches)return;document.getElementById("road-search-input").value=dd._matches[idx].name;selectedRoadName=null;activateRoad(dd._matches[idx]);closeDropdown();}
-  // ── Road activation: blur-freeze + C&C shrinking box ────────────────────────
-  //
-  // Sequence:
-  //   1. Instantly overlay a frosted-glass blur div — user sees a frozen,
-  //      defocused version of the current map view.
-  //   2. Draw a dashed target box in SCREEN PIXEL space (not a Leaflet layer)
-  //      starting at full viewport size and animate it shrinking to where the
-  //      target bounds will appear on screen.
-  //   3. Silently call map.fitBounds() underneath the blur — tiles load.
-  //   4. Once tiles are ready (tileloadend or timeout), fade the blur out,
-  //      revealing the sharp new view.
-  //
-  // The box lives as an absolutely-positioned <div> on #map-wrap, not a
-  // Leaflet layer, so it stays in screen space regardless of map state.
-  //
+  // Directly update opacity of all dimmed (non-selected) layers via setStyle,
+  // without recreating them. entry.spec.isSel===false && hasSel means dimmed.
+  function applyFadeOpacity(opac) {
+    fadeCurrent = opac;
+    renderedLayers.forEach(entry => {
+      if(!entry.spec || entry.spec.isSel) return; // skip selected road's own layers
+      if(!selectedRoadName) return;                // nothing selected, nothing to dim
+      entry.layers.forEach(l => {
+        if(!l.setStyle) return;
+        // Skip hit layers (transparent, weight 20) and glow layers (white)
+        if(l.options.color === "transparent" || l.options.color === "#fff") return;
+        if(l.setRadius) {
+          // circleMarker
+          l.setStyle({ opacity: opac, fillOpacity: opac * (0.8 / 0.15) > 0.8 ? 0.8 : opac * (0.8 / 0.15) });
+        } else {
+          l.setStyle({ opacity: opac });
+        }
+      });
+    });
+  }
+
   function activateRoad(road) {
-    if(selectionFadeTimer) { clearTimeout(selectionFadeTimer); selectionFadeTimer=null; }
-    if(targetBoxAnimFrame) { cancelAnimationFrame(targetBoxAnimFrame); targetBoxAnimFrame=null; }
-    // Dismiss any existing overlay immediately
-    if(transitionOverlay) { transitionOverlay.remove(); transitionOverlay=null; }
+    // Cancel any in-progress fade
+    if(fadeAnimFrame) { cancelAnimationFrame(fadeAnimFrame); fadeAnimFrame=null; }
+    if(fadeTimer)     { clearTimeout(fadeTimer); fadeTimer=null; }
 
     selectedRoadName=road.name;
+    fadeCurrent=0.05; // layers start nearly invisible and fade up to 0.85 over 4s
 
     const fitPts=[],fallPts=[];
     road.rows.forEach(row=>{
@@ -846,139 +849,42 @@
       if(activeStatus.has(statusKey(row.Status))) pts.forEach(p=>fitPts.push(p));
       pts.forEach(p=>fallPts.push(p));
     });
-
     const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
-    if(pts.length) {
-      const targetBounds = L.latLngBounds(pts).pad(0.1);
-      const mapWrap = document.getElementById("map-wrap");
-      const mapEl   = document.getElementById("map");
-      const W = mapEl.offsetWidth;
-      const H = mapEl.offsetHeight;
+    if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1),{maxZoom:17});
 
-      // ── Build the overlay ──────────────────────────────────────────────────
-      // One div: covers the map, applies backdrop-filter blur, contains the box.
-      const overlay = document.createElement("div");
-      overlay.style.cssText = [
-        "position:absolute","inset:0","z-index:1500",
-        "backdrop-filter:blur(6px)","-webkit-backdrop-filter:blur(6px)",
-        "pointer-events:none",
-        "transition:opacity 0.35s ease"
-      ].join(";");
-
-      // SVG for the animated target box — drawn in screen-pixel space
-      const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
-      svg.setAttribute("width","100%");
-      svg.setAttribute("height","100%");
-      svg.style.cssText = "position:absolute;inset:0;overflow:visible;";
-
-      const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
-      rect.setAttribute("fill","none");
-      rect.setAttribute("stroke","#ffffff");
-      rect.setAttribute("stroke-width","2");
-      rect.setAttribute("stroke-dasharray","8 5");
-      // Start at full viewport
-      rect.setAttribute("x","0");
-      rect.setAttribute("y","0");
-      rect.setAttribute("width", String(W));
-      rect.setAttribute("height", String(H));
-
-      // Pulsing opacity animation on the stroke
-      const animate = document.createElementNS("http://www.w3.org/2000/svg","animate");
-      animate.setAttribute("attributeName","stroke-opacity");
-      animate.setAttribute("values","0.4;1;0.4");
-      animate.setAttribute("dur","0.8s");
-      animate.setAttribute("repeatCount","indefinite");
-      rect.appendChild(animate);
-
-      svg.appendChild(rect);
-      overlay.appendChild(svg);
-      mapWrap.appendChild(overlay);
-      transitionOverlay = overlay;
-
-      // ── Work out where target bounds land in screen pixels right now ───────
-      // We compute this BEFORE moving the map.
-      function boundsToScreenRect(bounds) {
-        const nwPx = map.latLngToContainerPoint(bounds.getNorthWest());
-        const sePx = map.latLngToContainerPoint(bounds.getSouthEast());
-        return {
-          x: Math.min(nwPx.x, sePx.x),
-          y: Math.min(nwPx.y, sePx.y),
-          w: Math.abs(sePx.x - nwPx.x),
-          h: Math.abs(sePx.y - nwPx.y)
-        };
-      }
-
-      const endRect = boundsToScreenRect(targetBounds);
-
-      // ── Silently move the map underneath ──────────────────────────────────
-      map.fitBounds(targetBounds, { maxZoom:17, animate:false });
-
-      // ── Animate the box from full-screen → endRect ─────────────────────────
-      const DURATION = 700; // ms — feels satisfying, not sluggish
-      const t0 = performance.now();
-
-      // Start: full viewport
-      const sx=0, sy=0, sw=W, sh=H;
-      // End: where the target will be
-      const ex=endRect.x, ey=endRect.y, ew=endRect.w, eh=endRect.h;
-
-      function animStep(now) {
-        const raw = Math.min(1, (now - t0) / DURATION);
-        const e   = 1 - Math.pow(1 - raw, 3); // cubic ease-out
-
-        rect.setAttribute("x",      String(sx + (ex-sx)*e));
-        rect.setAttribute("y",      String(sy + (ey-sy)*e));
-        rect.setAttribute("width",  String(sw + (ew-sw)*e));
-        rect.setAttribute("height", String(sh + (eh-sh)*e));
-
-        if(raw < 1) {
-          targetBoxAnimFrame = requestAnimationFrame(animStep);
-        } else {
-          targetBoxAnimFrame = null;
-          // Animation done — wait briefly then fade out the overlay
-          revealMap(overlay);
-        }
-      }
-
-      targetBoxAnimFrame = requestAnimationFrame(animStep);
-
-      // ── Reveal: fade out the blur overlay ─────────────────────────────────
-      // Also listen for tileloadend in case tiles finish before the timeout.
-      let revealed = false;
-      function revealMap(ov) {
-        if(revealed) return;
-        revealed = true;
-        ov.style.opacity = "0";
-        setTimeout(()=>{ if(ov.parentNode) ov.remove(); if(transitionOverlay===ov) transitionOverlay=null; }, 380);
-      }
-
-      // Fallback: reveal after at most 1.5s total regardless of tile state
-      const MAX_WAIT = 1500;
-      setTimeout(()=>revealMap(overlay), MAX_WAIT);
-
-      // Opportunistic: reveal as soon as the tile layer says it's done loading
-      const tileLayer = map._layers && Object.values(map._layers).find(l=>l._url);
-      if(tileLayer) {
-        tileLayer.once("load", ()=>revealMap(overlay));
-      }
-    }
-
+    // renderLines creates layers at fadeCurrent=0.05 (nearly invisible),
+    // then a single rAF loop fades them up to 0.85 over 4 seconds.
+    fadeCurrent = 0.05;
     renderLines();
 
-    selectionFadeTimer = setTimeout(()=>{
-      selectedRoadName=null; selectionFadeTimer=null; renderLines();
-    }, SELECTION_FADE_DELAY_MS);
+    const FADE_DURATION = 4000;
+    const fadeStart = performance.now();
+
+    function fadeUpStep(now) {
+      const t = Math.min(1, (now - fadeStart) / FADE_DURATION);
+      const opac = 0.05 + (0.85 - 0.05) * t; // linear, constant rate
+      applyFadeOpacity(opac);
+      if(t < 1) {
+        fadeAnimFrame = requestAnimationFrame(fadeUpStep);
+      } else {
+        fadeAnimFrame = null;
+        fadeCurrent = 0.85;
+        selectedRoadName = null;
+        renderLines(); // clean reset
+      }
+    }
+    fadeAnimFrame = requestAnimationFrame(fadeUpStep);
   }
 
   function clearSelection(){
-    if(selectionFadeTimer){clearTimeout(selectionFadeTimer);selectionFadeTimer=null;}
-    if(targetBoxAnimFrame){cancelAnimationFrame(targetBoxAnimFrame);targetBoxAnimFrame=null;}
-    if(transitionOverlay){transitionOverlay.remove();transitionOverlay=null;}
-    if(!selectedRoadName)return;
+    if(fadeAnimFrame) { cancelAnimationFrame(fadeAnimFrame); fadeAnimFrame=null; }
+    if(fadeTimer)     { clearTimeout(fadeTimer); fadeTimer=null; }
+    if(!selectedRoadName) return;
     selectedRoadName=null;
+    fadeCurrent=0.85;
     renderLines();
   }
-  function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
+    function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
   function clearRoadSearch(){document.getElementById("road-search-input").value="";document.getElementById("road-search-clear").style.display="none";clearSelection();closeDropdown();}
   map.on("click",e=>{
     if(drawState) { handleDrawClick(e); return; }
