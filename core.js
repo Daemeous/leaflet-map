@@ -448,14 +448,13 @@
   // ── Popup HTML ────────────────────────────────────────────────────────────────
   function popupHtml(row) {
     const st=getStatus(row.Status);
-    const rowRef=encodeURIComponent(JSON.stringify({rowIdx:row._rowIdx,street:row.Street,ward:row.Ward}));
     const resStr=fmtResidences(row);
     const resBadge=resStr?`<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`:"";
     return `
       <div class="popup-street">${escHtml(row.Street)}</div>
       <div class="popup-ward">${escHtml(row.Ward)}</div>
       <div class="popup-meta">
-        <button class="popup-status-btn" onclick="popupEditClicked(this,'${rowRef}')" title="Click to change status">
+        <button class="popup-status-btn" data-row-idx="${row._rowIdx}" title="Click to change status">
           <span class="popup-status ${st.popupCls}">${escHtml(st.label)}</span>
         </button>
         ${resBadge}
@@ -463,6 +462,15 @@
       <div class="popup-edit-area" id="edit-${row._rowIdx}" style="display:none"></div>
     `;
   }
+
+  // Attach edit button listener after popup opens — avoids inline onclick
+  // with embedded JSON which breaks on street names containing apostrophes.
+  map.on("popupopen", function(e) {
+    const btn = e.popup.getElement().querySelector(".popup-status-btn[data-row-idx]");
+    if (!btn) return;
+    const rowIdx = parseInt(btn.dataset.rowIdx, 10);
+    btn.addEventListener("click", function() { popupEditClicked(this, rowIdx); });
+  });
 
   // ── Main render ───────────────────────────────────────────────────────────────
   function segmentKey(rowIdx,segIdx) { return `${rowIdx}_${segIdx}`; }
@@ -827,9 +835,9 @@
   // ── Auth ──────────────────────────────────────────────────────────────────────
   let pendingEdit=null;
   function tokenIsValid(){return authToken&&Date.now()<authExpiry-30_000;}
-  function popupEditClicked(btn,rowRefEncoded) {
-    const rowRef=JSON.parse(decodeURIComponent(rowRefEncoded));
-    const editDiv=document.getElementById("edit-"+rowRef.rowIdx);
+  function popupEditClicked(btn,rowIdx) {
+    const rowRef={rowIdx};
+    const editDiv=document.getElementById("edit-"+rowIdx);
     if(!editDiv) return;
     if(editDiv.style.display!=="none"){editDiv.style.display="none";return;}
     editDiv.style.display="block";
