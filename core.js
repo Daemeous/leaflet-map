@@ -164,8 +164,8 @@
 
   // ── Selection / target-box state ─────────────────────────────────────────────
   let selectionFadeTimer  = null;   // fades opacity back after road highlight
-  let targetBoxLayer      = null;   // L.rectangle shown during C&C animation
-  let targetBoxAnimFrame  = null;   // requestAnimationFrame handle
+  let targetBoxAnimFrame  = null;   // rAF handle for SVG box shrink animation
+  let transitionOverlay   = null;   // blur+SVG overlay div during transition
   const SELECTION_FADE_DELAY_MS = 4000;
 
   // ── Drawing state ─────────────────────────────────────────────────────────────
@@ -813,15 +813,26 @@
   }
   function updateDropdownFocus(opts){opts.forEach((el,i)=>el.classList.toggle("focused",i===dropdownFocusIdx));if(opts[dropdownFocusIdx])opts[dropdownFocusIdx].scrollIntoView({block:"nearest"});}
   function selectRoad(idx,e){e.preventDefault();const dd=document.getElementById("road-dropdown");if(!dd._matches)return;document.getElementById("road-search-input").value=dd._matches[idx].name;selectedRoadName=null;activateRoad(dd._matches[idx]);closeDropdown();}
-  // ── Road activation: C&C-style animated target box ───────────────────────────
-  // 1. Immediately call map.setView() to the target centre/zoom so tiles start
-  //    loading in the background — no visible movement yet.
-  // 2. Draw a dashed rectangle at the CURRENT viewport bounds.
-  // 3. Animate it shrinking to the target bounds over ~600ms (cubic ease-out).
-  // 4. On completion, snap the view to exactly fill the target bounds.
-  // The shrinking box acts as a progress indicator while tiles load.
+  // ── Road activation: blur-freeze + C&C shrinking box ────────────────────────
+  //
+  // Sequence:
+  //   1. Instantly overlay a frosted-glass blur div — user sees a frozen,
+  //      defocused version of the current map view.
+  //   2. Draw a dashed target box in SCREEN PIXEL space (not a Leaflet layer)
+  //      starting at full viewport size and animate it shrinking to where the
+  //      target bounds will appear on screen.
+  //   3. Silently call map.fitBounds() underneath the blur — tiles load.
+  //   4. Once tiles are ready (tileloadend or timeout), fade the blur out,
+  //      revealing the sharp new view.
+  //
+  // The box lives as an absolutely-positioned <div> on #map-wrap, not a
+  // Leaflet layer, so it stays in screen space regardless of map state.
+  //
   function activateRoad(road) {
     if(selectionFadeTimer) { clearTimeout(selectionFadeTimer); selectionFadeTimer=null; }
+    if(targetBoxAnimFrame) { cancelAnimationFrame(targetBoxAnimFrame); targetBoxAnimFrame=null; }
+    // Dismiss any existing overlay immediately
+    if(transitionOverlay) { transitionOverlay.remove(); transitionOverlay=null; }
 
     selectedRoadName=road.name;
 
@@ -839,54 +850,117 @@
     const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
     if(pts.length) {
       const targetBounds = L.latLngBounds(pts).pad(0.1);
+      const mapWrap = document.getElementById("map-wrap");
+      const mapEl   = document.getElementById("map");
+      const W = mapEl.offsetWidth;
+      const H = mapEl.offsetHeight;
 
-      // Cancel any previous animation
-      if(targetBoxAnimFrame) { cancelAnimationFrame(targetBoxAnimFrame); targetBoxAnimFrame=null; }
-      if(targetBoxLayer)     { map.removeLayer(targetBoxLayer); targetBoxLayer=null; }
+      // ── Build the overlay ──────────────────────────────────────────────────
+      // One div: covers the map, applies backdrop-filter blur, contains the box.
+      const overlay = document.createElement("div");
+      overlay.style.cssText = [
+        "position:absolute","inset:0","z-index:1500",
+        "backdrop-filter:blur(6px)","-webkit-backdrop-filter:blur(6px)",
+        "pointer-events:none",
+        "transition:opacity 0.35s ease"
+      ].join(";");
 
-      // Snapshot start bounds BEFORE moving the map
-      const sb = map.getBounds();
-      const startNW = sb.getNorthWest();
-      const startSE = sb.getSouthEast();
-      const endNW   = targetBounds.getNorthWest();
-      const endSE   = targetBounds.getSouthEast();
+      // SVG for the animated target box — drawn in screen-pixel space
+      const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+      svg.setAttribute("width","100%");
+      svg.setAttribute("height","100%");
+      svg.style.cssText = "position:absolute;inset:0;overflow:visible;";
 
-      // Silently jump to target centre+zoom so tiles start loading immediately
-      const targetZoom = Math.min(17, map.getBoundsZoom(targetBounds));
-      map.setView(targetBounds.getCenter(), targetZoom, { animate:false, noMoveStart:true });
+      const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      rect.setAttribute("fill","none");
+      rect.setAttribute("stroke","#ffffff");
+      rect.setAttribute("stroke-width","2");
+      rect.setAttribute("stroke-dasharray","8 5");
+      // Start at full viewport
+      rect.setAttribute("x","0");
+      rect.setAttribute("y","0");
+      rect.setAttribute("width", String(W));
+      rect.setAttribute("height", String(H));
 
-      // Draw the start-bounds rectangle and animate it shrinking
-      targetBoxLayer = L.rectangle([[startNW.lat, startNW.lng],[startSE.lat, startSE.lng]], {
-        className:"target-box", color:"#ffffff", weight:2, dashArray:"6 4",
-        fill:false, interactive:false
-      }).addTo(map);
+      // Pulsing opacity animation on the stroke
+      const animate = document.createElementNS("http://www.w3.org/2000/svg","animate");
+      animate.setAttribute("attributeName","stroke-opacity");
+      animate.setAttribute("values","0.4;1;0.4");
+      animate.setAttribute("dur","0.8s");
+      animate.setAttribute("repeatCount","indefinite");
+      rect.appendChild(animate);
 
-      const DURATION = 600; // ms
+      svg.appendChild(rect);
+      overlay.appendChild(svg);
+      mapWrap.appendChild(overlay);
+      transitionOverlay = overlay;
+
+      // ── Work out where target bounds land in screen pixels right now ───────
+      // We compute this BEFORE moving the map.
+      function boundsToScreenRect(bounds) {
+        const nwPx = map.latLngToContainerPoint(bounds.getNorthWest());
+        const sePx = map.latLngToContainerPoint(bounds.getSouthEast());
+        return {
+          x: Math.min(nwPx.x, sePx.x),
+          y: Math.min(nwPx.y, sePx.y),
+          w: Math.abs(sePx.x - nwPx.x),
+          h: Math.abs(sePx.y - nwPx.y)
+        };
+      }
+
+      const endRect = boundsToScreenRect(targetBounds);
+
+      // ── Silently move the map underneath ──────────────────────────────────
+      map.fitBounds(targetBounds, { maxZoom:17, animate:false });
+
+      // ── Animate the box from full-screen → endRect ─────────────────────────
+      const DURATION = 700; // ms — feels satisfying, not sluggish
       const t0 = performance.now();
 
+      // Start: full viewport
+      const sx=0, sy=0, sw=W, sh=H;
+      // End: where the target will be
+      const ex=endRect.x, ey=endRect.y, ew=endRect.w, eh=endRect.h;
+
       function animStep(now) {
-        const raw = (now - t0) / DURATION;
-        const t   = Math.min(1, raw);
-        const e   = 1 - Math.pow(1 - t, 3); // cubic ease-out
+        const raw = Math.min(1, (now - t0) / DURATION);
+        const e   = 1 - Math.pow(1 - raw, 3); // cubic ease-out
 
-        const nwLat = startNW.lat + (endNW.lat - startNW.lat) * e;
-        const nwLng = startNW.lng + (endNW.lng - startNW.lng) * e;
-        const seLat = startSE.lat + (endSE.lat - startSE.lat) * e;
-        const seLng = startSE.lng + (endSE.lng - startSE.lng) * e;
+        rect.setAttribute("x",      String(sx + (ex-sx)*e));
+        rect.setAttribute("y",      String(sy + (ey-sy)*e));
+        rect.setAttribute("width",  String(sw + (ew-sw)*e));
+        rect.setAttribute("height", String(sh + (eh-sh)*e));
 
-        if(targetBoxLayer) targetBoxLayer.setBounds([[nwLat,nwLng],[seLat,seLng]]);
-
-        if(t < 1) {
+        if(raw < 1) {
           targetBoxAnimFrame = requestAnimationFrame(animStep);
         } else {
           targetBoxAnimFrame = null;
-          // Snap view to exactly match the target bounds
-          map.fitBounds(targetBounds, { maxZoom:17, animate:false });
-          setTimeout(()=>{ if(targetBoxLayer){ map.removeLayer(targetBoxLayer); targetBoxLayer=null; } }, 120);
+          // Animation done — wait briefly then fade out the overlay
+          revealMap(overlay);
         }
       }
 
       targetBoxAnimFrame = requestAnimationFrame(animStep);
+
+      // ── Reveal: fade out the blur overlay ─────────────────────────────────
+      // Also listen for tileloadend in case tiles finish before the timeout.
+      let revealed = false;
+      function revealMap(ov) {
+        if(revealed) return;
+        revealed = true;
+        ov.style.opacity = "0";
+        setTimeout(()=>{ if(ov.parentNode) ov.remove(); if(transitionOverlay===ov) transitionOverlay=null; }, 380);
+      }
+
+      // Fallback: reveal after at most 1.5s total regardless of tile state
+      const MAX_WAIT = 1500;
+      setTimeout(()=>revealMap(overlay), MAX_WAIT);
+
+      // Opportunistic: reveal as soon as the tile layer says it's done loading
+      const tileLayer = map._layers && Object.values(map._layers).find(l=>l._url);
+      if(tileLayer) {
+        tileLayer.once("load", ()=>revealMap(overlay));
+      }
     }
 
     renderLines();
@@ -895,10 +969,11 @@
       selectedRoadName=null; selectionFadeTimer=null; renderLines();
     }, SELECTION_FADE_DELAY_MS);
   }
+
   function clearSelection(){
     if(selectionFadeTimer){clearTimeout(selectionFadeTimer);selectionFadeTimer=null;}
     if(targetBoxAnimFrame){cancelAnimationFrame(targetBoxAnimFrame);targetBoxAnimFrame=null;}
-    if(targetBoxLayer){map.removeLayer(targetBoxLayer);targetBoxLayer=null;}
+    if(transitionOverlay){transitionOverlay.remove();transitionOverlay=null;}
     if(!selectedRoadName)return;
     selectedRoadName=null;
     renderLines();
