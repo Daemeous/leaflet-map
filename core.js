@@ -166,6 +166,11 @@
   let selectionFadeTimer = null;
   const SELECTION_FADE_DELAY_MS = 4000; // time before opacity fades back to normal
 
+  // ── "Command & Conquer" style target box for road activation ─────────────────
+  let targetBoxLayer = null;
+  let targetBoxTimer = null;
+  const TARGET_BOX_DELAY_MS = 350; // time the target box is shown before flying in
+
   // ── Drawing state ─────────────────────────────────────────────────────────────
   // drawState machine: null | 'place-start' | 'place-end' | 'adjust'
   let drawState      = null;
@@ -833,8 +838,31 @@
     const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
     if(pts.length) {
       const bounds=L.latLngBounds(pts).pad(0.1);
-      // Animated fly — duration scales with distance so it never feels sluggish or too fast
-      map.flyToBounds(bounds, { maxZoom:17, duration:0.8, easeLinearity:0.5 });
+
+      // Remove any previous target box
+      if(targetBoxLayer) { map.removeLayer(targetBoxLayer); targetBoxLayer=null; }
+      if(targetBoxTimer) { clearTimeout(targetBoxTimer); targetBoxTimer=null; }
+
+      // Draw a "Command & Conquer" style target box at the destination bounds
+      // immediately, so the user sees where the camera is heading while
+      // tiles for the destination zoom have a moment to start loading.
+      targetBoxLayer=L.rectangle(bounds,{
+        className:"target-box",
+        color:"#ffffff",
+        weight:2,
+        dashArray:"6 4",
+        fill:false,
+        interactive:false
+      }).addTo(map);
+
+      targetBoxTimer=setTimeout(()=>{
+        map.flyToBounds(bounds, { maxZoom:17, duration:0.8, easeLinearity:0.5 });
+        // Remove the box once the fly animation completes
+        map.once("moveend",()=>{
+          if(targetBoxLayer) { map.removeLayer(targetBoxLayer); targetBoxLayer=null; }
+        });
+        targetBoxTimer=null;
+      }, TARGET_BOX_DELAY_MS);
     }
 
     renderLines();
@@ -849,6 +877,8 @@
 
   function clearSelection(){
     if(selectionFadeTimer){clearTimeout(selectionFadeTimer);selectionFadeTimer=null;}
+    if(targetBoxTimer){clearTimeout(targetBoxTimer);targetBoxTimer=null;}
+    if(targetBoxLayer){map.removeLayer(targetBoxLayer);targetBoxLayer=null;}
     if(!selectedRoadName)return;
     selectedRoadName=null;
     renderLines();
