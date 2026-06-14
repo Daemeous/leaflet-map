@@ -162,14 +162,11 @@
   let renderedLayers = new Map();  // segKey → {layers, spec, ward}
   let partialLayers  = new Map();  // rowIdx → [L.layer, ...]
 
-  // ── Selection fade-out timer ──────────────────────────────────────────────────
-  let selectionFadeTimer = null;
-  const SELECTION_FADE_DELAY_MS = 4000; // time before opacity fades back to normal
-
-  // ── "Command & Conquer" style target box for road activation ─────────────────
-  let targetBoxLayer = null;
-  let targetBoxTimer = null;
-  const TARGET_BOX_DELAY_MS = 350; // time the target box is shown before flying in
+  // ── Selection / target-box state ─────────────────────────────────────────────
+  let selectionFadeTimer  = null;   // fades opacity back after road highlight
+  let targetBoxLayer      = null;   // L.rectangle shown during C&C animation
+  let targetBoxAnimFrame  = null;   // requestAnimationFrame handle
+  const SELECTION_FADE_DELAY_MS = 4000;
 
   // ── Drawing state ─────────────────────────────────────────────────────────────
   // drawState machine: null | 'place-start' | 'place-end' | 'adjust'
@@ -816,10 +813,14 @@
   }
   function updateDropdownFocus(opts){opts.forEach((el,i)=>el.classList.toggle("focused",i===dropdownFocusIdx));if(opts[dropdownFocusIdx])opts[dropdownFocusIdx].scrollIntoView({block:"nearest"});}
   function selectRoad(idx,e){e.preventDefault();const dd=document.getElementById("road-dropdown");if(!dd._matches)return;document.getElementById("road-search-input").value=dd._matches[idx].name;selectedRoadName=null;activateRoad(dd._matches[idx]);closeDropdown();}
-
-  // ── Road activation with animated fly-to and timed fade-out ──────────────────
+  // ── Road activation: C&C-style animated target box ───────────────────────────
+  // 1. Immediately call map.setView() to the target centre/zoom so tiles start
+  //    loading in the background — no visible movement yet.
+  // 2. Draw a dashed rectangle at the CURRENT viewport bounds.
+  // 3. Animate it shrinking to the target bounds over ~600ms (cubic ease-out).
+  // 4. On completion, snap the view to exactly fill the target bounds.
+  // The shrinking box acts as a progress indicator while tiles load.
   function activateRoad(road) {
-    // Cancel any pending fade-out timer
     if(selectionFadeTimer) { clearTimeout(selectionFadeTimer); selectionFadeTimer=null; }
 
     selectedRoadName=road.name;
@@ -837,47 +838,66 @@
 
     const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
     if(pts.length) {
-      const bounds=L.latLngBounds(pts).pad(0.1);
+      const targetBounds = L.latLngBounds(pts).pad(0.1);
 
-      // Remove any previous target box
-      if(targetBoxLayer) { map.removeLayer(targetBoxLayer); targetBoxLayer=null; }
-      if(targetBoxTimer) { clearTimeout(targetBoxTimer); targetBoxTimer=null; }
+      // Cancel any previous animation
+      if(targetBoxAnimFrame) { cancelAnimationFrame(targetBoxAnimFrame); targetBoxAnimFrame=null; }
+      if(targetBoxLayer)     { map.removeLayer(targetBoxLayer); targetBoxLayer=null; }
 
-      // Draw a "Command & Conquer" style target box at the destination bounds
-      // immediately, so the user sees where the camera is heading while
-      // tiles for the destination zoom have a moment to start loading.
-      targetBoxLayer=L.rectangle(bounds,{
-        className:"target-box",
-        color:"#ffffff",
-        weight:2,
-        dashArray:"6 4",
-        fill:false,
-        interactive:false
+      // Snapshot start bounds BEFORE moving the map
+      const sb = map.getBounds();
+      const startNW = sb.getNorthWest();
+      const startSE = sb.getSouthEast();
+      const endNW   = targetBounds.getNorthWest();
+      const endSE   = targetBounds.getSouthEast();
+
+      // Silently jump to target centre+zoom so tiles start loading immediately
+      const targetZoom = Math.min(17, map.getBoundsZoom(targetBounds));
+      map.setView(targetBounds.getCenter(), targetZoom, { animate:false, noMoveStart:true });
+
+      // Draw the start-bounds rectangle and animate it shrinking
+      targetBoxLayer = L.rectangle([[startNW.lat, startNW.lng],[startSE.lat, startSE.lng]], {
+        className:"target-box", color:"#ffffff", weight:2, dashArray:"6 4",
+        fill:false, interactive:false
       }).addTo(map);
 
-      targetBoxTimer=setTimeout(()=>{
-        map.flyToBounds(bounds, { maxZoom:17, duration:0.8, easeLinearity:0.5 });
-        // Remove the box once the fly animation completes
-        map.once("moveend",()=>{
-          if(targetBoxLayer) { map.removeLayer(targetBoxLayer); targetBoxLayer=null; }
-        });
-        targetBoxTimer=null;
-      }, TARGET_BOX_DELAY_MS);
+      const DURATION = 600; // ms
+      const t0 = performance.now();
+
+      function animStep(now) {
+        const raw = (now - t0) / DURATION;
+        const t   = Math.min(1, raw);
+        const e   = 1 - Math.pow(1 - t, 3); // cubic ease-out
+
+        const nwLat = startNW.lat + (endNW.lat - startNW.lat) * e;
+        const nwLng = startNW.lng + (endNW.lng - startNW.lng) * e;
+        const seLat = startSE.lat + (endSE.lat - startSE.lat) * e;
+        const seLng = startSE.lng + (endSE.lng - startSE.lng) * e;
+
+        if(targetBoxLayer) targetBoxLayer.setBounds([[nwLat,nwLng],[seLat,seLng]]);
+
+        if(t < 1) {
+          targetBoxAnimFrame = requestAnimationFrame(animStep);
+        } else {
+          targetBoxAnimFrame = null;
+          // Snap view to exactly match the target bounds
+          map.fitBounds(targetBounds, { maxZoom:17, animate:false });
+          setTimeout(()=>{ if(targetBoxLayer){ map.removeLayer(targetBoxLayer); targetBoxLayer=null; } }, 120);
+        }
+      }
+
+      targetBoxAnimFrame = requestAnimationFrame(animStep);
     }
 
     renderLines();
 
-    // Schedule fade back to normal opacity after a few seconds
-    selectionFadeTimer=setTimeout(()=>{
-      selectedRoadName=null;
-      selectionFadeTimer=null;
-      renderLines();
+    selectionFadeTimer = setTimeout(()=>{
+      selectedRoadName=null; selectionFadeTimer=null; renderLines();
     }, SELECTION_FADE_DELAY_MS);
   }
-
   function clearSelection(){
     if(selectionFadeTimer){clearTimeout(selectionFadeTimer);selectionFadeTimer=null;}
-    if(targetBoxTimer){clearTimeout(targetBoxTimer);targetBoxTimer=null;}
+    if(targetBoxAnimFrame){cancelAnimationFrame(targetBoxAnimFrame);targetBoxAnimFrame=null;}
     if(targetBoxLayer){map.removeLayer(targetBoxLayer);targetBoxLayer=null;}
     if(!selectedRoadName)return;
     selectedRoadName=null;
@@ -887,7 +907,6 @@
   function clearRoadSearch(){document.getElementById("road-search-input").value="";document.getElementById("road-search-clear").style.display="none";clearSelection();closeDropdown();}
   map.on("click",e=>{
     if(drawState) { handleDrawClick(e); return; }
-    // A map click also cancels the fade timer and clears selection immediately
     clearSelection();
   });
   document.addEventListener("click",e=>{if(!e.target.closest(".road-search-wrap"))closeDropdown();});
@@ -1059,47 +1078,9 @@
     document.getElementById("map").classList.add("draw-mode");
     setDrawHint("Tap road to place start point");
 
-    // Show immediate controls: cancel always, clear only if existing data
-    showDrawEntryControls(geomData);
-  }
-
-  // ── Draw-mode entry controls (shown before any points are placed) ─────────────
-  function showDrawEntryControls(geomData) {
-    map.eachLayer(l=>{if(l._isDrawControls)map.removeLayer(l);});
-
-    const hasExisting=(drawRoad.partial_geometry||"-")!=="-";
-    const existingParts=parsePartialGeom(drawRoad.partial_geometry||"");
-    const existingCount=existingParts.length;
-
-    // Position the controls panel near the centre of the road
-    const midProp=0.5;
-    const midPt=interpolateAlongPts(geomData.pts,geomData.cumLens,midProp);
-
-    const content=document.createElement("div");
-    content.innerHTML=`
-      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:8px;">Partial completion</div>
-      ${hasExisting?`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${existingCount} existing section${existingCount!==1?"s":""} — tap road to add another</div>`:`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Tap the road to place start &amp; end points</div>`}
-      <div class="popup-partial-actions">
-        <button class="popup-partial-action-btn" id="draw-entry-cancel">✕ Cancel</button>
-        ${hasExisting?`<button class="popup-partial-action-btn danger" id="draw-entry-clear">🗑 Clear all</button>`:""}
-      </div>
-      <div class="popup-partial-status" id="draw-entry-status"></div>
-    `;
-
-    const popup=L.popup({closeButton:false,closeOnClick:false,autoClose:false,className:""})
-      .setLatLng(midPt).setContent(content).openOn(map);
-    popup._isDrawControls=true;
-
-    content.querySelector("#draw-entry-cancel").addEventListener("click",()=>{
-      exitDrawMode(geomData);
-      map.closePopup();
-    });
-
-    const clearBtn=content.querySelector("#draw-entry-clear");
-    if(clearBtn) {
-      clearBtn.addEventListener("click",()=>{
-        clearPartialGeom(geomData, content.querySelector("#draw-entry-status"));
-      });
+    const existing=parsePartialGeom(road.partial_geometry||"");
+    if(existing.length) {
+      setDrawHint(`${existing.length} existing section(s) — tap road to add another, or Save with no selection to keep as-is, or Clear All to remove`);
     }
   }
 
@@ -1127,8 +1108,6 @@
       drawStartProp=snapped.prop;
       drawEndProp=null;
       drawState="place-end";
-      // Close the entry controls popup when the user starts placing points
-      map.eachLayer(l=>{if(l._isDrawControls)map.removeLayer(l);});
       placeHandles(geomData);
       setDrawHint("Tap road to place end point");
 
