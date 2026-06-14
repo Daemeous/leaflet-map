@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leafleting Map [DEBUG]</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<script>
+// ── Debug: catch all unhandled errors and show as alert ──────────────────────
+window.onerror = function(msg, src, line, col, err) {
+  alert("JS ERROR\n\n" + msg + "\n\nAt: " + src + " line " + line + "\n\n" + (err ? err.stack : ""));
+};
+window.onunhandledrejection = function(e) {
+  alert("PROMISE ERROR\n\n" + (e.reason ? (e.reason.stack || e.reason.message || e.reason) : "Unknown rejection"));
+};
+
+// ── Debug: patch fetch to surface network failures ───────────────────────────
+const _origFetch = window.fetch;
+window.fetch = async function(...args) {
+  const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "unknown";
+  const shortUrl = url.length > 80 ? url.slice(0, 80) + "…" : url;
+  try {
+    const res = await _origFetch(...args);
+    if (!res.ok) alert("FETCH FAILED\n\nURL: " + shortUrl + "\n\nStatus: " + res.status + " " + res.statusText);
+    return res;
+  } catch(e) {
+    alert("FETCH ERROR\n\nURL: " + shortUrl + "\n\nError: " + e.message);
+    throw e;
+  }
+};
+
+// ── Debug: patch google.accounts to report sign-in steps ────────────────────
+// We do this after the GSI script loads by wrapping triggerSignIn globally
+const _origTriggerSignIn = window.triggerSignIn;
+document.addEventListener("DOMContentLoaded", function() {
+  // Patch happens after core.js runs, so we wrap at call time instead
+});
+
+// ── Per-deployment configuration ────────────────────────────────────────────
+window.MAP_CONFIG = {
+  SHEET_ID:  "2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q",
+  SHEET_GID: "2107159853",
+  CHECKSUM_GID: "1371223354",
+  GOOGLE_CLIENT_ID: "580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com",
+  APPS_SCRIPT_URL:  "https://script.google.com/macros/s/AKfycbyeyfwzYRVEUPse35hzVyPJAtOBut7swG4YlGA0hu1qQQACijzJoiZ6O2uMfmJGnJg4/exec",
+  LS_SUFFIX: "2107159853",
+  TITLE:    "Leafleting Map",
+  SUBTITLE: "Filter roads by ward or completion status.",
+  INITIAL_VIEW: [52.8, -2.12],
+  INITIAL_ZOOM: 12
+};
+</script>
+
+<!-- External libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script>
+// Check libraries loaded before Google script
+if (typeof L === "undefined")       alert("DEBUG: Leaflet failed to load");
+if (typeof Papa === "undefined")    alert("DEBUG: PapaParse failed to load");
+if (typeof turf === "undefined")    alert("DEBUG: Turf failed to load");
+</script>
+<script src="https://accounts.google.com/gsi/client"></script>
+<script>
+// Check Google loaded
+if (typeof google === "undefined" || !google.accounts) {
+  alert("DEBUG: Google Sign-In script failed to load — this is likely the sign-in bug");
+}
+</script>
+
+<!-- Shared application code -->
+<script src="core.js"></script>
+
+<script>
+// After core.js: patch triggerSignIn to add debug alerts around each step
+(function() {
+  const _orig = window.triggerSignIn;
+  window.triggerSignIn = function() {
+    alert("DEBUG: triggerSignIn called\n\ngoogle defined: " + (typeof google !== "undefined") + "\ngoogle.accounts defined: " + !!(typeof google !== "undefined" && google.accounts) + "\ngoogle.accounts.id defined: " + !!(typeof google !== "undefined" && google.accounts && google.accounts.id));
+    return _orig.apply(this, arguments);
+  };
+
+  const _origProcess = window.processSignIn;
+  if (_origProcess) {
+    window.processSignIn = async function(idToken, emailHint, accessToken) {
+      alert("DEBUG: processSignIn called\n\nhas idToken: " + !!idToken + "\nhas accessToken: " + !!accessToken + "\nemailHint: " + (emailHint || "none"));
+      return _origProcess.apply(this, arguments);
+    };
+  }
+})();
+</script>
+
+</body>
+</html>
