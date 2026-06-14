@@ -169,15 +169,3 @@ html,body { height:100%; font-family:'DM Sans',sans-serif; background:var(--bg);
 .cookie-btn-accept:hover { background:#6ba3ff; }
 .cookie-btn-decline { background:transparent; color:var(--muted); }
 .cookie-btn-decline:hover { background:rgba(255,255,255,0.06); color:var(--text); }
-
-/* ── Target box: C&C-style animated destination indicator ── */
-/* Drawn as an L.rectangle with className:"target-box" during road activation. */
-/* Starts at the current viewport and shrinks to the target bounds via rAF.    */
-path.target-box {
-  animation: target-box-pulse 0.4s ease-in-out infinite alternate;
-  pointer-events: none;
-}
-@keyframes target-box-pulse {
-  from { stroke-opacity: 0.5; stroke-width: 2px; }
-  to   { stroke-opacity: 1;   stroke-width: 3px; }
-}
