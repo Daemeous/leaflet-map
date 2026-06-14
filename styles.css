@@ -169,3 +169,14 @@ html,body { height:100%; font-family:'DM Sans',sans-serif; background:var(--bg);
 .cookie-btn-accept:hover { background:#6ba3ff; }
 .cookie-btn-decline { background:transparent; color:var(--muted); }
 .cookie-btn-decline:hover { background:rgba(255,255,255,0.06); color:var(--text); }
+
+/* ── Target box: "Command & Conquer" style destination indicator ── */
+/* Shown via L.rectangle({className:"target-box", ...}) before flying to a selected road. */
+path.target-box {
+  animation: target-box-pulse 0.6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes target-box-pulse {
+  from { stroke-opacity: 0.4; }
+  to   { stroke-opacity: 1; }
+}
