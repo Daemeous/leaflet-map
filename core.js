@@ -1191,7 +1191,7 @@
     );
   }
 
-
+  function closeAdminModal() {
     const overlay = document.getElementById("admin-modal-overlay");
     overlay.style.display = "none";
     overlay.innerHTML = "";
