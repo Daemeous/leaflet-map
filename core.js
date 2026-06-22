@@ -119,7 +119,7 @@
     </div>
   </aside>
   <div id="map-wrap">
-    <button id="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+    <button id="sidebar-toggle" onclick="toggleSidebar()">☰</button>
     <div id="map"></div>
     <div id="draw-hint"></div>
     <div id="loading"><div class="spinner"></div><p id="loading-msg">Loading road data…</p></div>
@@ -141,7 +141,7 @@
   injectAppShell();
 
   // ── Map ───────────────────────────────────────────────────────────────────────
-  const map = L.map("map",{zoomControl:true}).setView(INITIAL_VIEW, INITIAL_ZOOM);
+  const map = L.map("map",{zoomControl:false}).setView(INITIAL_VIEW, INITIAL_ZOOM);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
     attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom:19
   }).addTo(map);
@@ -615,6 +615,7 @@
     else { activeWards.clear(); activeWards.add(ward); }
     buildWardList(document.querySelector(".ward-search").value);
     renderLines(); updateStats();
+    if(isMobile()) closeSidebar();
   }
   function buildWardList(filter="") {
     const container=document.getElementById("ward-list");
@@ -860,6 +861,7 @@
     });
     const pts=fitPts.length?fitPts:(fallPts.length?fallPts:road.allLatLngs);
     if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1),{maxZoom:17});
+    if(isMobile()) closeSidebar();
 
     // renderLines creates layers at fadeCurrent=0.05 (nearly invisible),
     // then a single rAF loop fades them up to 0.85 over 4 seconds.
@@ -895,9 +897,16 @@
   }
     function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
   function clearRoadSearch(){document.getElementById("road-search-input").value="";document.getElementById("road-search-clear").style.display="none";clearSelection();closeDropdown();}
+  // ── Sidebar helpers (mobile) ─────────────────────────────────────────────────
+  function isMobile() { return window.innerWidth <= 640; }
+  function closeSidebar() { document.getElementById("sidebar").classList.remove("open"); }
+  function openSidebar()  { document.getElementById("sidebar").classList.add("open"); }
+  function toggleSidebar(){ document.getElementById("sidebar").classList.toggle("open"); }
+
   map.on("click",e=>{
     if(drawState) { handleDrawClick(e); return; }
     clearSelection();
+    if(isMobile()) closeSidebar();
   });
   document.addEventListener("click",e=>{if(!e.target.closest(".road-search-wrap"))closeDropdown();});
 
@@ -1171,6 +1180,7 @@
           .openPopup();
 
         map.setView([lat, lon], Math.max(map.getZoom(), 14));
+        if(isMobile()) closeSidebar();
 
         btn.textContent = bestWard ? `⊕ ${bestWard}` : "⊕ Find my ward";
         btn.style.opacity = "1";
@@ -1555,6 +1565,8 @@
   // ── Boot ──────────────────────────────────────────────────────────────────────
   (async function boot() {
     restoreAuthSession();
+    // Open sidebar by default on mobile so filters are immediately visible
+    if(isMobile()) openSidebar();
     const cached=loadFromCache();
     if(cached&&cached.rows&&cached.rows.length){
       document.getElementById("loading-msg").textContent="Loading from cache…";
