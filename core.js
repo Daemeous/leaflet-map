@@ -108,9 +108,13 @@
       </div>
       <div class="filter-section">
         <div class="filter-label">Ward</div>
+        <button class="ward-all-btn" id="gps-locate-btn" onclick="locateAndFilterWard()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">⊕ Find my ward</button>
         <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
         <button class="ward-all-btn" onclick="selectAllWards()">Select / deselect all</button>
         <div class="ward-list" id="ward-list"></div>
+      </div>
+      <div class="filter-section" style="margin-top:auto;display:none;" id="admin-panel-section">
+        <button class="ward-all-btn" id="admin-panel-link" onclick="openAdminPanel()" style="border-color:var(--red);color:var(--red);">⚠ Editor history / revert</button>
       </div>
     </div>
   </aside>
@@ -120,6 +124,7 @@
     <div id="draw-hint"></div>
     <div id="loading"><div class="spinner"></div><p id="loading-msg">Loading road data…</p></div>
     <div id="error-banner"></div>
+    <div id="admin-modal-overlay" style="display:none;"></div>
   </div>`;
     document.body.insertBefore(app, document.body.firstChild);
 
@@ -200,6 +205,10 @@
       const s=JSON.parse(raw);
       if(!s.token||Date.now()>=s.expiry-30_000){localStorage.removeItem(LS_AUTH);return;}
       authToken=s.token; authTokenType=s.tokenType||"idToken"; authEmail=s.email; authExpiry=s.expiry; authAuthorised=s.authorised;
+      if(authAuthorised) {
+        // DOM may not be ready yet — defer to next tick
+        setTimeout(()=>{ const el=document.getElementById("admin-panel-section"); if(el) el.style.display=""; }, 0);
+      }
     } catch(e){localStorage.removeItem(LS_AUTH);}
   }
 
@@ -943,6 +952,7 @@
       if(authAuthorised){
         if(cookieConsent()==="accepted") persistAuthSession();
         else if(!cookieConsent()) showCookieBanner();
+        document.getElementById("admin-panel-section").style.display="";
       }
       if(!authAuthorised){if(editDiv)showEditMsg(editDiv,`${authEmail} is not authorised.`,"error");return;}
       if(pendingEdit){showStatusPicker(pendingEdit.editDiv,pendingEdit.rowRef);pendingEdit=null;}
@@ -1006,9 +1016,219 @@
     localStorage.removeItem(LS_AUTH);
     if(typeof google!=="undefined"&&google.accounts) google.accounts.id.disableAutoSelect();
     document.querySelectorAll(".popup-edit-area").forEach(el=>el.style.display="none");
+    document.getElementById("admin-panel-section").style.display="none";
   }
 
-  // ── Partial geometry editor ───────────────────────────────────────────────────
+  // ── Admin panel ───────────────────────────────────────────────────────────────
+  // Shows a modal listing editors with standing-change counts.
+  // Requires the user to be signed in and authorised.
+  // Purge requires typing the target email to confirm.
+
+  function openAdminPanel() {
+    if(!tokenIsValid()||!authAuthorised) {
+      showError("Sign in first to access the editor history panel.");
+      return;
+    }
+    renderAdminModal("loading");
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"history",...tp})})
+      .then(r=>r.json())
+      .then(data=>{
+        if(!data.ok) { renderAdminModal("error", data.error||"Failed to load history"); return; }
+        renderAdminModal("list", null, data.editors);
+      })
+      .catch(e=>renderAdminModal("error", "Network error: "+e.message));
+  }
+
+  function renderAdminModal(state, errorMsg, editors) {
+    const overlay = document.getElementById("admin-modal-overlay");
+    overlay.style.cssText = "display:flex;position:absolute;inset:0;z-index:3000;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);";
+
+    let inner = "";
+    if(state==="loading") {
+      inner = `<div class="spinner" style="margin:0 auto 12px;"></div><p style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);text-align:center;">Loading editor history…</p>`;
+    } else if(state==="error") {
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);margin-bottom:12px;">⚠ ${escHtml(errorMsg)}</div>
+        <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>`;
+    } else if(state==="list") {
+      const rows = editors.length
+        ? editors.map(e=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:5px;background:rgba(255,255,255,0.03);border:1px solid var(--border);margin-bottom:4px;">
+              <div>
+                <div style="font-size:12px;color:var(--text);">${escHtml(e.editor)}</div>
+                <div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">${e.standingChanges} standing change${e.standingChanges!==1?"s":""}</div>
+              </div>
+              <button class="popup-partial-action-btn danger" onclick="adminConfirmRevert('${escHtml(e.editor)}',${e.standingChanges})">Revert all</button>
+            </div>`).join("")
+        : `<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px 0;">No editor history on record yet.</div>`;
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:10px;letter-spacing:0.08em;text-transform:uppercase;">Editor history</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Standing changes are edits still showing as the current value. Reverting erases that editor's entire standing history.</div>
+        <div id="admin-editor-list" style="margin-bottom:12px;">${rows}</div>
+        <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>`;
+    } else if(state==="confirm") {
+      // errorMsg here is actually the target email, editors[0] is standingChanges count
+      const targetEmail = errorMsg;
+      const count = editors;
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red);margin-bottom:10px;letter-spacing:0.08em;text-transform:uppercase;">⚠ Confirm revert</div>
+        <div style="font-size:12px;color:var(--text);margin-bottom:4px;">You are about to revert <strong>${escHtml(targetEmail)}</strong>'s ${count} standing change${count!==1?"s":""} across all roads.</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Type their email address below to confirm. This action will itself be logged and can be reverted.</div>
+        <input id="admin-confirm-input" type="text" placeholder="${escHtml(targetEmail)}"
+          style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:7px 10px;outline:none;margin-bottom:10px;"
+          oninput="document.getElementById('admin-confirm-btn').disabled=this.value.trim().toLowerCase()!=='${escHtml(targetEmail)}'">
+        <div style="display:flex;gap:8px;">
+          <button class="popup-partial-action-btn danger" id="admin-confirm-btn" disabled onclick="adminExecuteRevert('${escHtml(targetEmail)}')">Revert all</button>
+          <button class="popup-partial-action-btn" onclick="openAdminPanel()">← Back</button>
+        </div>
+        <div id="admin-confirm-status" style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:8px;"></div>`;
+    } else if(state==="done") {
+      // errorMsg = result summary string
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);margin-bottom:12px;">✓ Revert complete</div>
+        <div style="font-size:12px;color:var(--text);margin-bottom:12px;">${escHtml(errorMsg)}</div>
+        <div style="display:flex;gap:8px;">
+          <button class="popup-partial-action-btn" onclick="openAdminPanel()">← Back to history</button>
+          <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>
+        </div>`;
+    }
+
+    overlay.innerHTML = `
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;width:min(420px,90vw);max-height:80vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
+        ${inner}
+      </div>`;
+  }
+
+  // ── GPS Ward Locator ──────────────────────────────────────────────────────────
+  // Requests the user's location, finds which ward they're in (or nearest to)
+  // by checking proximity to road centroids, solos that ward, drops a pin,
+  // and pans to them.
+  let gpsMarker = null;
+
+  function locateAndFilterWard() {
+    const btn = document.getElementById("gps-locate-btn");
+    if(!navigator.geolocation) {
+      showError("Geolocation is not supported by your browser.");
+      return;
+    }
+    btn.textContent = "⊕ Locating…";
+    btn.style.opacity = "0.6";
+    btn.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+
+        // Find the ward whose roads are collectively closest to this point.
+        // We compute the mean squared distance from (lat,lon) to each road's
+        // @lat/@lon centroid, grouped by ward, and pick the minimum.
+        const wardDistSq = {};
+        const wardCount  = {};
+        allRoads.forEach(r => {
+          const rlat = parseFloat(r["@lat"]);
+          const rlon = parseFloat(r["@lon"]);
+          if(isNaN(rlat) || isNaN(rlon)) return;
+          const ward = (r.Ward || "Unknown").trim();
+          const dLat = rlat - lat;
+          const dLon = rlon - lon;
+          const dsq  = dLat*dLat + dLon*dLon;
+          wardDistSq[ward] = (wardDistSq[ward] || 0) + dsq;
+          wardCount[ward]  = (wardCount[ward]  || 0) + 1;
+        });
+
+        let bestWard = null, bestAvg = Infinity;
+        Object.keys(wardDistSq).forEach(w => {
+          const avg = wardDistSq[w] / wardCount[w];
+          if(avg < bestAvg) { bestAvg = avg; bestWard = w; }
+        });
+
+        // Solo the matched ward
+        if(bestWard) {
+          Object.keys(wardCounts).forEach(w => {
+            if(w === bestWard) activeWards.add(w);
+            else activeWards.delete(w);
+          });
+          buildWardList(document.querySelector(".ward-search").value);
+          renderLines();
+          updateStats();
+        }
+
+        // Drop / update the location marker
+        if(gpsMarker) map.removeLayer(gpsMarker);
+        gpsMarker = L.circleMarker([lat, lon], {
+          radius: 8,
+          color: "#fff",
+          fillColor: "#4f8ef7",
+          fillOpacity: 1,
+          weight: 2,
+          interactive: true
+        }).addTo(map)
+          .bindPopup(bestWard
+            ? `<div class="popup-street">You are here</div><div class="popup-ward">${escHtml(bestWard)}</div>`
+            : `<div class="popup-street">You are here</div>`)
+          .openPopup();
+
+        map.setView([lat, lon], Math.max(map.getZoom(), 14));
+
+        btn.textContent = bestWard ? `⊕ ${bestWard}` : "⊕ Find my ward";
+        btn.style.opacity = "1";
+        btn.disabled = false;
+      },
+      err => {
+        btn.textContent = "⊕ Find my ward";
+        btn.style.opacity = "1";
+        btn.disabled = false;
+        const msgs = {
+          1: "Location access denied — please allow location in your browser settings.",
+          2: "Location unavailable — check your signal and try again.",
+          3: "Location request timed out — try again."
+        };
+        showError(msgs[err.code] || "Location error: " + err.message);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+
+
+    const overlay = document.getElementById("admin-modal-overlay");
+    overlay.style.display = "none";
+    overlay.innerHTML = "";
+  }
+
+  function adminConfirmRevert(targetEmail, count) {
+    renderAdminModal("confirm", targetEmail, count);
+  }
+
+  function adminExecuteRevert(targetEmail) {
+    const statusEl = document.getElementById("admin-confirm-status");
+    const btn = document.getElementById("admin-confirm-btn");
+    if(statusEl) statusEl.textContent = "Reverting…";
+    if(btn) btn.disabled = true;
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"revert",targetEditor:targetEmail,...tp})})
+      .then(r=>r.json())
+      .then(data=>{
+        if(!data.ok) {
+          if(statusEl) statusEl.textContent = "Error: "+(data.error||"Unknown error");
+          if(btn) btn.disabled=false;
+          return;
+        }
+        // Force a full data reload so the map reflects reverted values
+        lastChecksum=null;
+        const summary=`Reverted ${data.revertedCount} change${data.revertedCount!==1?"s":""} across roads.`
+          +(data.skippedCount?` ${data.skippedCount} already overwritten by others — left untouched.`:"");
+        renderAdminModal("done", summary);
+        checkForUpdates(false);
+      })
+      .catch(e=>{
+        if(statusEl) statusEl.textContent="Network error: "+e.message;
+        if(btn) btn.disabled=false;
+      });
+  }
+
+
   function openPartialEditor(rowIdx) {
     const row=allRoads.find(r=>r._rowIdx===rowIdx);
     if(!row) return;
@@ -1326,6 +1546,11 @@
   window.cookieAccept = cookieAccept;
   window.cookieDecline = cookieDecline;
   window.showCookiePolicy = showCookiePolicy;
+  window.openAdminPanel = openAdminPanel;
+  window.closeAdminModal = closeAdminModal;
+  window.adminConfirmRevert = adminConfirmRevert;
+  window.adminExecuteRevert = adminExecuteRevert;
+  window.locateAndFilterWard = locateAndFilterWard;
 
   // ── Boot ──────────────────────────────────────────────────────────────────────
   (async function boot() {
