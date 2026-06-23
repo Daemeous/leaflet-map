@@ -292,23 +292,29 @@
 
   // Extract pts/cumLens for a road's combined geometry (all segments concatenated)
   function getRoadGeomData(road) {
-    const rawSegs=parseWKT(road.road_geometry);
-    if(!rawSegs.length) return null;
-    const segs = sortSegmentsTopologically(rawSegs);
-    const pts=segs.flat();
-    const cumLens=cumulativeLengths(pts);
-    const total=cumLens[cumLens.length-1];
-    const breaks=[];
-    let idx=0;
-    segs.forEach(seg=>{
-      const startProp=total>0?cumLens[idx]/total:0;
-      idx+=seg.length;
-      const endIdx=Math.min(idx-1, cumLens.length-1);
-      const endProp=total>0?cumLens[endIdx]/total:1;
-      breaks.push({startProp,endProp,segIdx:breaks.length});
+    const rawSegs = parseWKT(road.road_geometry);
+    if (!rawSegs.length) return null;
+
+    // Keep original WKT order for stable seg indices
+    const pts = rawSegs.flat();
+    const cumLens = cumulativeLengths(pts);
+    const total = cumLens[cumLens.length - 1];
+
+    const breaks = [];
+    let idx = 0;
+    rawSegs.forEach(seg => {
+        const startProp = total > 0 ? cumLens[idx] / total : 0;
+        idx += seg.length;
+        const endIdx = Math.min(idx - 1, cumLens.length - 1);
+        const endProp = total > 0 ? cumLens[endIdx] / total : 1;
+        breaks.push({ startProp, endProp, segIdx: breaks.length });
     });
-    return {pts,cumLens,total,breaks,segs};
-  }
+
+    // Sorted version used only for rendering the road highlight / handle snapping
+    const sortedSegs = sortSegmentsTopologically(rawSegs);
+
+    return { pts, cumLens, total, breaks, segs: rawSegs, sortedSegs };
+}
 
   // Produce an offset polyline (metres offset, left of travel direction)
   function offsetPolyline(pts, offsetMetres) {
@@ -1281,9 +1287,9 @@
 
     drawRoadHighlightLayers.forEach(l=>partialLayerGroup.removeLayer(l));
     drawRoadHighlightLayers=[];
-    geomData.segs.forEach(seg=>{
-      const hl=L.polyline(seg,{color:"#fff",weight:10,opacity:0.2,interactive:false});
-      hl.addTo(partialLayerGroup); drawRoadHighlightLayers.push(hl);
+   geomData.sortedSegs.forEach(seg => {
+    const hl = L.polyline(seg, {color:"#fff", weight:10, opacity:0.2, interactive:false});
+    hl.addTo(partialLayerGroup); drawRoadHighlightLayers.push(hl);
     });
 
     document.getElementById("map").classList.add("draw-mode");
