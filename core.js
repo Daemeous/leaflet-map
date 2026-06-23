@@ -306,7 +306,7 @@
   //
   // "Closest endpoint" is determined in degree-space (cheap, sufficient).
 
-  function segEndpoints(seg) {
+   function segEndpoints(seg) {
     // Returns { start: [lat,lon], end: [lat,lon] }
     return { start: seg[0], end: seg[seg.length - 1] };
   }
@@ -320,130 +320,128 @@
     const sIdx = startSnap.segIdx;
     const eIdx = endSnap.segIdx;
 
-    // Trivial case: same segment
     if (sIdx === eIdx) {
-      const t0 = Math.min(startSnap.t, endSnap.t);
-      const t1 = Math.max(startSnap.t, endSnap.t);
-      if (t1 - t0 < 0.0001) return [];
-      return [{ segIdx: sIdx, t0, t1 }];
+        const t0 = Math.min(startSnap.t, endSnap.t);
+        const t1 = Math.max(startSnap.t, endSnap.t);
+        if (t1 - t0 < 0.0001) return [];
+        return [{ segIdx: sIdx, t0, t1 }];
     }
 
-    // We need to chain from sIdx to eIdx through segment endpoints.
-    // First decide which endpoint of the start segment to leave from,
-    // and which endpoint of the end segment to arrive at.
-    //
-    // We do a simple greedy nearest-neighbour traversal over the remaining
-    // segments (excluding start and end), building a chain. Then we pick
-    // the direction that minimises total endpoint-to-endpoint distance.
+    // Build a graph of which segments connect to which via shared endpoints
+    // (within a tolerance), then do a shortest-path (BFS by hop count) from
+    // sIdx to eIdx. This avoids greedy degree-space mistakes entirely.
+    const SNAP = 0.0003; // ~30m in degrees
 
-    const startSeg = segs[sIdx];
-    const endSeg   = segs[eIdx];
-    const startEps = segEndpoints(startSeg);
-    const endEps   = segEndpoints(endSeg);
-
-    // Middle segments (all except start and end)
-    const middleIndices = segs.map((_,i)=>i).filter(i=>i!==sIdx && i!==eIdx);
-
-    // Chain middle segments greedily from a given starting point
-    function greedyChain(fromPt, remaining) {
-      const chain = [];
-      let current = fromPt;
-      const rem = [...remaining];
-      while (rem.length) {
-        let bestIdx = -1, bestDist = Infinity, bestFlipped = false;
-        rem.forEach((segIdx, i) => {
-          const ep = segEndpoints(segs[segIdx]);
-          const d0 = ptDist2(current, ep.start);
-          const d1 = ptDist2(current, ep.end);
-          if (Math.min(d0,d1) < bestDist) {
-            bestDist = Math.min(d0,d1);
-            bestIdx = i;
-            bestFlipped = d1 < d0; // arrive at .end first → reversed traversal
-          }
-        });
-        if (bestIdx === -1) break;
-        const chosenIdx = rem.splice(bestIdx, 1)[0];
-        const ep = segEndpoints(segs[chosenIdx]);
-        chain.push({ segIdx: chosenIdx, flipped: bestFlipped });
-        current = bestFlipped ? ep.start : ep.end;
-      }
-      return chain;
+    function epClose(a, b) {
+        return Math.abs(a[0]-b[0]) < SNAP && Math.abs(a[1]-b[1]) < SNAP;
     }
 
-    // Try both exit directions from the start segment and pick the one
-    // that ends up closest to either endpoint of the end segment.
-    // exitT: the proportion at which we leave the start segment
-    // exitPt: the geographic point we leave from
-    const options = [
-      { exitT: 1.0, exitPt: startEps.end,   t0: startSnap.t, t1: 1.0 },
-      { exitT: 0.0, exitPt: startEps.start, t0: 0.0,         t1: startSnap.t },
-    ].filter(o => Math.abs(o.t1 - o.t0) > 0.0001);
+    // For each segment, record its start and end points
+    const eps = segs.map(seg => ({ start: seg[0], end: seg[seg.length-1] }));
 
-    let bestPath = null, bestTotalDist = Infinity;
-
-    options.forEach(opt => {
-      const chain = greedyChain(opt.exitPt, middleIndices);
-      const arrivalPt = chain.length
-        ? (chain[chain.length-1].flipped
-            ? segEndpoints(segs[chain[chain.length-1].segIdx]).start
-            : segEndpoints(segs[chain[chain.length-1].segIdx]).end)
-        : opt.exitPt;
-
-      // Decide which end of endSeg to arrive at
-      const d0 = ptDist2(arrivalPt, endEps.start);
-      const d1 = ptDist2(arrivalPt, endEps.end);
-      const arriveAtStart = d0 <= d1;
-
-      // Build the end segment entry: arrive at whichever end is closest,
-      // traverse to endSnap.t
-      let endEntry;
-      if (arriveAtStart) {
-        endEntry = { segIdx: eIdx, t0: 0, t1: endSnap.t };
-      } else {
-        endEntry = { segIdx: eIdx, t0: endSnap.t, t1: 1.0 };
-      }
-
-      // Total "detour cost" = sum of inter-segment gaps
-      let totalDist = ptDist2(opt.exitPt, chain.length
-        ? (chain[0].flipped ? segEndpoints(segs[chain[0].segIdx]).end : segEndpoints(segs[chain[0].segIdx]).start)
-        : (arriveAtStart ? endEps.start : endEps.end));
-      chain.forEach((c,i) => {
-        if (i < chain.length-1) {
-          const ep = segEndpoints(segs[c.segIdx]);
-          const exitPt = c.flipped ? ep.start : ep.end;
-          const nextC = chain[i+1];
-          const nep = segEndpoints(segs[nextC.segIdx]);
-          const entryPt = nextC.flipped ? nep.end : nep.start;
-          totalDist += ptDist2(exitPt, entryPt);
+    // Build adjacency: adj[i] = array of { segIdx, reverseI, reverseJ }
+    // reverseI = whether seg i must be traversed end→start to reach the join
+    // reverseJ = whether seg j must be traversed start→end from the join
+    const adj = segs.map(() => []);
+    for (let i = 0; i < segs.length; i++) {
+        for (let j = 0; j < segs.length; j++) {
+            if (i === j) continue;
+            // end of i connects to start of j
+            if (epClose(eps[i].end, eps[j].start))
+                adj[i].push({ to: j, exitI: 'end', entryJ: 'start' });
+            // end of i connects to end of j (j traversed backwards)
+            if (epClose(eps[i].end, eps[j].end))
+                adj[i].push({ to: j, exitI: 'end', entryJ: 'end' });
+            // start of i connects to start of j (i traversed backwards)
+            if (epClose(eps[i].start, eps[j].start))
+                adj[i].push({ to: j, exitI: 'start', entryJ: 'start' });
+            // start of i connects to end of j (both relevant)
+            if (epClose(eps[i].start, eps[j].end))
+                adj[i].push({ to: j, exitI: 'start', entryJ: 'end' });
         }
-      });
+    }
 
-      if (totalDist < bestTotalDist) {
-        bestTotalDist = totalDist;
-        bestPath = { opt, chain, endEntry, arriveAtStart };
-      }
-    });
+    // BFS from sIdx to eIdx, tracking which end of sIdx we exit from
+    // State: { segIdx, entryEnd ('start'|'end'|null for first) }
+    // We try both exit directions from sIdx
+    const INF = 999999;
+    let bestPath = null;
 
-    if (!bestPath) return [];
+    for (const startExit of ['end', 'start']) {
+        // Check start segment makes sense for this exit direction
+        const startT0 = startExit === 'end' ? startSnap.t : 0;
+        const startT1 = startExit === 'end' ? 1.0 : startSnap.t;
+        if (Math.abs(startT1 - startT0) < 0.0001) continue;
 
-    // Assemble final result
+        // BFS
+        const visited = new Map(); // segIdx+entryEnd → prev
+        const queue = [{ segIdx: sIdx, entryEnd: null, exitEnd: startExit, path: [] }];
+        let found = null;
+
+        while (queue.length && !found) {
+            const cur = queue.shift();
+            const stateKey = `${cur.segIdx}:${cur.exitEnd}`;
+            if (visited.has(stateKey)) continue;
+            visited.set(stateKey, true);
+
+            const newPath = [...cur.path, { segIdx: cur.segIdx, exitEnd: cur.exitEnd, entryEnd: cur.entryEnd }];
+
+            if (cur.segIdx === eIdx && cur.path.length > 0) {
+                found = newPath;
+                break;
+            }
+
+            for (const edge of adj[cur.segIdx]) {
+                if (edge.exitI !== cur.exitEnd) continue;
+                queue.push({
+                    segIdx: edge.to,
+                    entryEnd: edge.entryJ,
+                    exitEnd: edge.entryJ === 'start' ? 'end' : 'start',
+                    path: newPath
+                });
+            }
+        }
+
+        if (found && (!bestPath || found.length < bestPath.length)) {
+            bestPath = found;
+        }
+    }
+
+    if (!bestPath) {
+        // No topological connection found — fall back to just the two endpoints
+        // independently (disconnected road segments, user drew across a gap)
+        const result = [];
+        const t0s = Math.min(startSnap.t, 1);
+        const t1s = Math.max(startSnap.t, 0);
+        result.push({ segIdx: sIdx, t0: startSnap.t, t1: 1.0 });
+        result.push({ segIdx: eIdx, t0: 0.0, t1: endSnap.t });
+        return result.filter(e => Math.abs(e.t1-e.t0) > 0.0001);
+    }
+
+    // Convert BFS path to {segIdx, t0, t1} entries
     const result = [];
+    bestPath.forEach((step, i) => {
+        const isFirst = i === 0;
+        const isLast  = i === bestPath.length - 1;
 
-    // Start segment
-    const { opt, chain, endEntry } = bestPath;
-    if (Math.abs(opt.t1 - opt.t0) > 0.0001) {
-      result.push({ segIdx: sIdx, t0: opt.t0, t1: opt.t1 });
-    }
+        let t0, t1;
+        if (isFirst) {
+            // Start segment: from startSnap.t to whichever end we exit from
+            t0 = step.exitEnd === 'end' ? startSnap.t : 0;
+            t1 = step.exitEnd === 'end' ? 1.0 : startSnap.t;
+        } else if (isLast && step.segIdx === eIdx) {
+            // End segment: from whichever end we entered to endSnap.t
+            t0 = step.entryEnd === 'start' ? 0 : endSnap.t;
+            t1 = step.entryEnd === 'start' ? endSnap.t : 1.0;
+        } else {
+            // Middle segment: full traversal
+            t0 = 0; t1 = 1;
+        }
 
-    // Middle segments (full traversal of each)
-    chain.forEach(c => {
-      result.push({ segIdx: c.segIdx, t0: 0, t1: 1 });
+        if (Math.abs(t1-t0) > 0.0001) {
+            result.push({ segIdx: step.segIdx, t0: Math.min(t0,t1), t1: Math.max(t0,t1) });
+        }
     });
-
-    // End segment
-    if (Math.abs(endEntry.t1 - endEntry.t0) > 0.0001) {
-      result.push(endEntry);
-    }
 
     return result;
   }
