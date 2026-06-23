@@ -36,8 +36,8 @@
   const POLL_INTERVAL_MS = CFG.POLL_INTERVAL_MS || 15 * 60 * 1000;
   const GOOGLE_CLIENT_ID = CFG.GOOGLE_CLIENT_ID;
   const APPS_SCRIPT_URL  = CFG.APPS_SCRIPT_URL;
-  const PARTIAL_ZOOM_THRESHOLD = 14; // partial overlays hidden below this zoom level
-  const LS_SUFFIX   = CFG.LS_SUFFIX || SHEET_GID;   // unique per deployment
+  const PARTIAL_ZOOM_THRESHOLD = 14;
+  const LS_SUFFIX   = CFG.LS_SUFFIX || SHEET_GID;
   const LS_DATA     = `leafmap_data_v3_${LS_SUFFIX}`;
   const LS_CHECKSUM = `leafmap_checksum_v3_${LS_SUFFIX}`;
   const LS_TIME     = `leafmap_time_${LS_SUFFIX}`;
@@ -149,7 +149,7 @@
   // ── State ─────────────────────────────────────────────────────────────────────
   let allRoads     = [];
   let layerGroups  = {};
-  let partialLayerGroup = L.layerGroup().addTo(map); // separate group, always on top
+  let partialLayerGroup = L.layerGroup().addTo(map);
   let activeStatus = new Set(STATUSES.map(s=>s.key));
   let activeWards  = new Set();
   let wardCounts   = {};
@@ -159,32 +159,32 @@
   let pollTimer        = null;
   let isChecking       = false;
   let selectedRoadName   = null;
-  let fadeCurrent        = 0.85; // current opacity of non-selected roads (animated)
-  let fadeAnimFrame      = null; // rAF handle for fade animation
-  let fadeTimer          = null; // timer before fade-back begins
+  let fadeCurrent        = 0.85;
+  let fadeAnimFrame      = null;
+  let fadeTimer          = null;
   let authToken      = null;
   let authTokenType  = "idToken";
   let authEmail      = null;
   let authExpiry     = 0;
   let authAuthorised = false;
-  let renderedLayers = new Map();  // segKey → {layers, spec, ward}
-  let partialLayers  = new Map();  // rowIdx → [L.layer, ...]
+  let renderedLayers = new Map();
+  let partialLayers  = new Map();
 
   // ── Drawing state ─────────────────────────────────────────────────────────────
-  // drawState machine: null | 'place-start' | 'place-end' | 'adjust'
+  // drawStart / drawEnd are now { segIdx: number, t: number, latlng: [lat,lon] }
+  // instead of global proportions. This avoids all issues with segment
+  // concatenation order and detached stub segments.
   let drawState      = null;
-  let drawRoad       = null;   // the road row being edited
-  let drawSegPts     = [];     // flat array of all [lat,lon] points for this road (all segments)
-  let drawSegBreaks  = [];     // indices where new segments begin (for per-seg attribution)
-  let drawStartProp  = null;   // proportion along total length (0-1)
-  let drawEndProp    = null;
-  let drawBothSides  = false;  // toggle: false=single side, true=both
-  let drawPreviewLayers = [];  // temp map layers for live preview
-  let drawHandleStart = null;  // L.circleMarker
+  let drawRoad       = null;
+  let drawStart      = null;   // { segIdx, t, latlng }
+  let drawEnd        = null;   // { segIdx, t, latlng }
+  let drawBothSides  = false;
+  let drawPreviewLayers = [];
+  let drawHandleStart = null;
   let drawHandleEnd   = null;
-  let drawActiveHandle = null; // 'start'|'end' — which handle is currently being moved
-  let drawFlipped    = false;  // whether the offset side has been flipped
-  let drawRoadHighlightLayers = []; // highlight of the selected road during drawing
+  let drawActiveHandle = null;
+  let drawFlipped    = false;
+  let drawRoadHighlightLayers = [];
 
   // ── Cookie consent ────────────────────────────────────────────────────────────
   function cookieConsent() { return localStorage.getItem(LS_COOKIE); }
@@ -206,7 +206,6 @@
       if(!s.token||Date.now()>=s.expiry-30_000){localStorage.removeItem(LS_AUTH);return;}
       authToken=s.token; authTokenType=s.tokenType||"idToken"; authEmail=s.email; authExpiry=s.expiry; authAuthorised=s.authorised;
       if(authAuthorised) {
-        // DOM may not be ready yet — defer to next tick
         setTimeout(()=>{ const el=document.getElementById("admin-panel-section"); if(el) el.style.display=""; }, 0);
       }
     } catch(e){localStorage.removeItem(LS_AUTH);}
@@ -233,10 +232,8 @@
     }).filter(a=>a&&a.length>=2);
   }
 
-  // Convert [lat,lon] array to turf GeoJSON point
   function turfPt(latlng) { return turf.point([latlng[1],latlng[0]]); }
 
-  // Compute cumulative length array for a list of [lat,lon] pts (in metres)
   function cumulativeLengths(pts) {
     const lens=[0];
     for(let i=1;i<pts.length;i++) {
@@ -246,7 +243,6 @@
     return lens;
   }
 
-  // Interpolate a point at proportion t (0-1) along pts
   function interpolateAlongPts(pts,cumLens,t) {
     const total=cumLens[cumLens.length-1];
     if(total===0) return pts[0];
@@ -262,70 +258,207 @@
     return pts[pts.length-1];
   }
 
-  // Snap a latlng click to the nearest point on the road's combined geometry
-  // Returns { prop: 0-1, latlng: [lat,lon] }
-  function snapToRoad(clickLatLng, pts, cumLens) {
-    const total=cumLens[cumLens.length-1];
-    if(total===0) return {prop:0,latlng:pts[0]};
-    let bestDist=Infinity, bestProp=0, bestPt=pts[0];
+  // ── Per-segment snap ──────────────────────────────────────────────────────────
+  // Returns { segIdx, t, latlng } where segIdx is the raw WKT segment index
+  // and t is 0-1 along that individual segment.
+  function snapToNearestSegment(clickLatLng, segs) {
+    let bestSegIdx = 0, bestT = 0, bestDist = Infinity, bestPt = segs[0][0];
     const click = turf.point([clickLatLng.lng, clickLatLng.lat]);
-    for(let i=1;i<pts.length;i++) {
-      const a=[pts[i-1][1],pts[i-1][0]]; // [lon,lat] for turf
-      const b=[pts[i][1],pts[i][0]];
-      const line=turf.lineString([a,b]);
-      const snapped=turf.nearestPointOnLine(line,click,{units:"meters"});
-      const distToLine=snapped.properties.dist; // metres from click to line
-      if(distToLine<bestDist) {
-        bestDist=distToLine;
-        const c=snapped.geometry.coordinates; // [lon,lat]
-        const distAlongSeg=turf.distance(
-          turf.point(a), turf.point(c), {units:"meters"}
-        );
-        const segLen=cumLens[i]-cumLens[i-1];
-        const clampedDist=Math.min(segLen, Math.max(0, distAlongSeg));
-        bestProp=(cumLens[i-1]+clampedDist)/total;
-        bestPt=[c[1],c[0]];
+
+    segs.forEach((pts, segIdx) => {
+      const cumLens = cumulativeLengths(pts);
+      const segTotal = cumLens[cumLens.length - 1];
+
+      for (let i = 1; i < pts.length; i++) {
+        const a = [pts[i-1][1], pts[i-1][0]];
+        const b = [pts[i][1],   pts[i][0]];
+        const line = turf.lineString([a, b]);
+        const snapped = turf.nearestPointOnLine(line, click, {units:"meters"});
+        const d = snapped.properties.dist;
+        if (d < bestDist) {
+          bestDist = d;
+          const c = snapped.geometry.coordinates;
+          const distAlongSeg = turf.distance(turf.point(a), turf.point(c), {units:"meters"});
+          const subSegLen = cumLens[i] - cumLens[i-1];
+          const clamped = Math.min(subSegLen, Math.max(0, distAlongSeg));
+          const tAlongSeg = segTotal > 0 ? (cumLens[i-1] + clamped) / segTotal : 0;
+          bestSegIdx = segIdx;
+          bestT = Math.min(1, Math.max(0, tAlongSeg));
+          bestPt = [c[1], c[0]];
+        }
       }
-    }
-    return {prop:Math.min(1,Math.max(0,bestProp)),latlng:bestPt};
+    });
+
+    return { segIdx: bestSegIdx, t: bestT, latlng: bestPt };
   }
 
-  // Extract pts/cumLens for a road's combined geometry (all segments concatenated)
+  // ── Segment path traversal ────────────────────────────────────────────────────
+  // Given a start {segIdx, t} and end {segIdx, t} on potentially different
+  // segments, find the shortest path through segment endpoints connecting them.
+  // Returns an array of { segIdx, t0, t1 } entries ready for encoding.
+  //
+  // Strategy:
+  //   1. If same segment: trivial.
+  //   2. Otherwise: from the start segment, pick the endpoint (start or end)
+  //      that is geographically closest to the end segment's chosen endpoint.
+  //      Then greedily chain through remaining segments by nearest-endpoint
+  //      matching until we reach the target segment.
+  //
+  // "Closest endpoint" is determined in degree-space (cheap, sufficient).
+
+  function segEndpoints(seg) {
+    // Returns { start: [lat,lon], end: [lat,lon] }
+    return { start: seg[0], end: seg[seg.length - 1] };
+  }
+
+  function ptDist2(a, b) {
+    const dLat = a[0]-b[0], dLon = a[1]-b[1];
+    return dLat*dLat + dLon*dLon;
+  }
+
+  function buildSegmentPath(segs, startSnap, endSnap) {
+    const sIdx = startSnap.segIdx;
+    const eIdx = endSnap.segIdx;
+
+    // Trivial case: same segment
+    if (sIdx === eIdx) {
+      const t0 = Math.min(startSnap.t, endSnap.t);
+      const t1 = Math.max(startSnap.t, endSnap.t);
+      if (t1 - t0 < 0.0001) return [];
+      return [{ segIdx: sIdx, t0, t1 }];
+    }
+
+    // We need to chain from sIdx to eIdx through segment endpoints.
+    // First decide which endpoint of the start segment to leave from,
+    // and which endpoint of the end segment to arrive at.
+    //
+    // We do a simple greedy nearest-neighbour traversal over the remaining
+    // segments (excluding start and end), building a chain. Then we pick
+    // the direction that minimises total endpoint-to-endpoint distance.
+
+    const startSeg = segs[sIdx];
+    const endSeg   = segs[eIdx];
+    const startEps = segEndpoints(startSeg);
+    const endEps   = segEndpoints(endSeg);
+
+    // Middle segments (all except start and end)
+    const middleIndices = segs.map((_,i)=>i).filter(i=>i!==sIdx && i!==eIdx);
+
+    // Chain middle segments greedily from a given starting point
+    function greedyChain(fromPt, remaining) {
+      const chain = [];
+      let current = fromPt;
+      const rem = [...remaining];
+      while (rem.length) {
+        let bestIdx = -1, bestDist = Infinity, bestFlipped = false;
+        rem.forEach((segIdx, i) => {
+          const ep = segEndpoints(segs[segIdx]);
+          const d0 = ptDist2(current, ep.start);
+          const d1 = ptDist2(current, ep.end);
+          if (Math.min(d0,d1) < bestDist) {
+            bestDist = Math.min(d0,d1);
+            bestIdx = i;
+            bestFlipped = d1 < d0; // arrive at .end first → reversed traversal
+          }
+        });
+        if (bestIdx === -1) break;
+        const chosenIdx = rem.splice(bestIdx, 1)[0];
+        const ep = segEndpoints(segs[chosenIdx]);
+        chain.push({ segIdx: chosenIdx, flipped: bestFlipped });
+        current = bestFlipped ? ep.start : ep.end;
+      }
+      return chain;
+    }
+
+    // Try both exit directions from the start segment and pick the one
+    // that ends up closest to either endpoint of the end segment.
+    // exitT: the proportion at which we leave the start segment
+    // exitPt: the geographic point we leave from
+    const options = [
+      { exitT: 1.0, exitPt: startEps.end,   t0: startSnap.t, t1: 1.0 },
+      { exitT: 0.0, exitPt: startEps.start, t0: 0.0,         t1: startSnap.t },
+    ].filter(o => Math.abs(o.t1 - o.t0) > 0.0001);
+
+    let bestPath = null, bestTotalDist = Infinity;
+
+    options.forEach(opt => {
+      const chain = greedyChain(opt.exitPt, middleIndices);
+      const arrivalPt = chain.length
+        ? (chain[chain.length-1].flipped
+            ? segEndpoints(segs[chain[chain.length-1].segIdx]).start
+            : segEndpoints(segs[chain[chain.length-1].segIdx]).end)
+        : opt.exitPt;
+
+      // Decide which end of endSeg to arrive at
+      const d0 = ptDist2(arrivalPt, endEps.start);
+      const d1 = ptDist2(arrivalPt, endEps.end);
+      const arriveAtStart = d0 <= d1;
+
+      // Build the end segment entry: arrive at whichever end is closest,
+      // traverse to endSnap.t
+      let endEntry;
+      if (arriveAtStart) {
+        endEntry = { segIdx: eIdx, t0: 0, t1: endSnap.t };
+      } else {
+        endEntry = { segIdx: eIdx, t0: endSnap.t, t1: 1.0 };
+      }
+
+      // Total "detour cost" = sum of inter-segment gaps
+      let totalDist = ptDist2(opt.exitPt, chain.length
+        ? (chain[0].flipped ? segEndpoints(segs[chain[0].segIdx]).end : segEndpoints(segs[chain[0].segIdx]).start)
+        : (arriveAtStart ? endEps.start : endEps.end));
+      chain.forEach((c,i) => {
+        if (i < chain.length-1) {
+          const ep = segEndpoints(segs[c.segIdx]);
+          const exitPt = c.flipped ? ep.start : ep.end;
+          const nextC = chain[i+1];
+          const nep = segEndpoints(segs[nextC.segIdx]);
+          const entryPt = nextC.flipped ? nep.end : nep.start;
+          totalDist += ptDist2(exitPt, entryPt);
+        }
+      });
+
+      if (totalDist < bestTotalDist) {
+        bestTotalDist = totalDist;
+        bestPath = { opt, chain, endEntry, arriveAtStart };
+      }
+    });
+
+    if (!bestPath) return [];
+
+    // Assemble final result
+    const result = [];
+
+    // Start segment
+    const { opt, chain, endEntry } = bestPath;
+    if (Math.abs(opt.t1 - opt.t0) > 0.0001) {
+      result.push({ segIdx: sIdx, t0: opt.t0, t1: opt.t1 });
+    }
+
+    // Middle segments (full traversal of each)
+    chain.forEach(c => {
+      result.push({ segIdx: c.segIdx, t0: 0, t1: 1 });
+    });
+
+    // End segment
+    if (Math.abs(endEntry.t1 - endEntry.t0) > 0.0001) {
+      result.push(endEntry);
+    }
+
+    return result;
+  }
+
+  // ── getRoadGeomData ───────────────────────────────────────────────────────────
+  // Returns per-segment data. segs = raw WKT order (stable indices for encoding).
+  // sortedSegs = topologically chained (used only for highlight glow).
   function getRoadGeomData(road) {
     const rawSegs = parseWKT(road.road_geometry);
     if (!rawSegs.length) return null;
     const sortedSegs = sortSegmentsTopologically(rawSegs);
-
-    // Map sorted positions back to raw WKT indices for stable encoding
-    const sortedToRawIdx = sortedSegs.map(sorted =>
-        rawSegs.findIndex(raw =>
-            raw[0][0] === sorted[0][0] && raw[0][1] === sorted[0][1] &&
-            raw[raw.length-1][0] === sorted[sorted.length-1][0] &&
-            raw[raw.length-1][1] === sorted[sorted.length-1][1]
-        )
-    );
-
-    const pts = sortedSegs.flat();
-    const cumLens = cumulativeLengths(pts);
-    const total = cumLens[cumLens.length - 1];
-    const breaks = [];
-    let idx = 0;
-    sortedSegs.forEach((seg, sortedIdx) => {
-        const startProp = total > 0 ? cumLens[idx] / total : 0;
-        idx += seg.length;
-        const endIdx = Math.min(idx - 1, cumLens.length - 1);
-        const endProp = total > 0 ? cumLens[endIdx] / total : 1;
-        breaks.push({ startProp, endProp, segIdx: sortedToRawIdx[sortedIdx] });
-    });
-
-    return { pts, cumLens, total, breaks, segs: sortedSegs, sortedSegs };
-}
-
-    // Sorted version used only for rendering the road highlight / handle snapping
-    const sortedSegs = sortSegmentsTopologically(rawSegs);
-
-    return { pts, cumLens, total, breaks, segs: rawSegs, sortedSegs };
-}
+    // Per-segment cumulative lengths (each segment independent)
+    const segCumLens = rawSegs.map(seg => cumulativeLengths(seg));
+    return { segs: rawSegs, sortedSegs, segCumLens };
+  }
 
   // Produce an offset polyline (metres offset, left of travel direction)
   function offsetPolyline(pts, offsetMetres) {
@@ -343,27 +476,28 @@
     const sk=statusKey(road.Status);
     if(sk==="complete") return 1.0;
     if(sk==="notstarted"||sk==="planned") return 0.0;
-    // In Progress
     const pgStr=(road.partial_geometry||"").trim();
-    if(!pgStr||pgStr==="-") return 0.3; // default 30%
-    const geomData=getRoadGeomData(road);
-    if(!geomData) return 0.3;
-    const total=geomData.total;
-    if(total===0) return 0.3;
-    let covered=0;
-    pgStr.split("|").forEach(part=>{
-      const m=part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S|F)$/);
+    if(!pgStr||pgStr==="-") return 0.3;
+    const segs = parseWKT(road.road_geometry);
+    if(!segs.length) return 0.3;
+    const segCumLens = segs.map(seg => cumulativeLengths(seg));
+    const totalRoadLen = segCumLens.reduce((sum, cl) => sum + cl[cl.length-1], 0);
+    if(totalRoadLen === 0) return 0.3;
+
+    let covered = 0;
+    pgStr.split("|").forEach(part => {
+      const m = part.match(/^seg(\d+):([\d.]+)-([\d.]+):(B|S|F)$/);
       if(!m) return;
-      const segIdx=parseInt(m[1]);
-      const t0=parseFloat(m[2]),t1=parseFloat(m[3]);
-      const side=m[4];
-      const brk=geomData.breaks[segIdx];
-      if(!brk) return;
-      const segTotalLen=(brk.endProp-brk.startProp)*total;
-      const coveredLen=Math.abs(t1-t0)*segTotalLen;
-      covered+=coveredLen*(side==="B"?1.0:0.5);
+      const segIdx = parseInt(m[1]);
+      const t0 = parseFloat(m[2]), t1 = parseFloat(m[3]);
+      const side = m[4];
+      const cl = segCumLens[segIdx];
+      if(!cl) return;
+      const segLen = cl[cl.length-1];
+      const coveredLen = Math.abs(t1-t0) * segLen;
+      covered += coveredLen * (side==="B" ? 1.0 : 0.5);
     });
-    return Math.min(1, covered/total);
+    return Math.min(1, covered / totalRoadLen);
   }
 
   // ── Partial geometry string parser ────────────────────────────────────────────
@@ -381,27 +515,11 @@
     return parts.map(p=>`seg${p.segIdx}:${p.t0.toFixed(4)}-${p.t1.toFixed(4)}:${p.side}`).join("|");
   }
 
-  function globalPropToSegProps(globalT0, globalT1, geomData) {
-    const results=[];
-    geomData.breaks.forEach(brk=>{
-      const {startProp,endProp,segIdx}=brk;
-      const segLen=endProp-startProp;
-      if(segLen<=0) return;
-      const overlapStart=Math.max(globalT0,startProp);
-      const overlapEnd  =Math.min(globalT1,endProp);
-      if(overlapEnd<=overlapStart) return;
-      const t0=(overlapStart-startProp)/segLen;
-      const t1=(overlapEnd  -startProp)/segLen;
-      results.push({segIdx,t0:Math.max(0,t0),t1:Math.min(1,t1)});
-    });
-    return results;
-  }
-
   // ── Partial overlay rendering ─────────────────────────────────────────────────
   const PARTIAL_COLOUR = "#1e7e4a";
   const PARTIAL_WEIGHT_BOTH   = 8;
   const PARTIAL_WEIGHT_SINGLE = 6;
-  const PARTIAL_OFFSET_M      = 5; // metres offset for single-side
+  const PARTIAL_OFFSET_M      = 5;
 
   function renderAllPartials() {
     partialLayerGroup.clearLayers();
@@ -411,7 +529,7 @@
       if(statusKey(road.Status)!=="inprogress") return;
       const pgStr=(road.partial_geometry||"").trim();
       if(!pgStr||pgStr==="-") return;
-      if(zoom<PARTIAL_ZOOM_THRESHOLD && road.Street.toLowerCase()!==( selectedRoadName||"").toLowerCase()) return;
+      if(zoom<PARTIAL_ZOOM_THRESHOLD && road.Street.toLowerCase()!==(selectedRoadName||"").toLowerCase()) return;
       renderPartialForRoad(road);
     });
   }
@@ -427,44 +545,41 @@
       return;
     }
 
-    const geomData=getRoadGeomData(road);
-    if(!geomData) return;
-    const {pts,cumLens,total,breaks,segs}=geomData;
-    const parts=parsePartialGeom(pgStr);
+    const segs = parseWKT(road.road_geometry);
+    if(!segs.length) return;
+    const segCumLens = segs.map(seg => cumulativeLengths(seg));
+    const parts = parsePartialGeom(pgStr);
 
-    parts.forEach(({segIdx,t0,t1,side})=>{
-      const brk=breaks[segIdx];
-      if(!brk) return;
-      const segPts=segs[segIdx];
-      const segCumLens=cumulativeLengths(segPts);
-      const segTotal=segCumLens[segCumLens.length-1];
+    parts.forEach(({segIdx, t0, t1, side}) => {
+      const segPts = segs[segIdx];
+      const segCL  = segCumLens[segIdx];
+      if(!segPts || !segCL) return;
 
-      let ptsSubset=[];
-      const p0=interpolateAlongPts(segPts,segCumLens,t0);
-      const p1=interpolateAlongPts(segPts,segCumLens,t1);
-      ptsSubset.push(p0);
-      segPts.forEach((p,i)=>{
-        const prop=segTotal>0?segCumLens[i]/segTotal:0;
-        if(prop>t0&&prop<t1) ptsSubset.push(p);
+      const p0 = interpolateAlongPts(segPts, segCL, t0);
+      const p1 = interpolateAlongPts(segPts, segCL, t1);
+      let subset = [p0];
+      const segTotal = segCL[segCL.length-1];
+      segPts.forEach((p,i) => {
+        const prop = segTotal > 0 ? segCL[i] / segTotal : 0;
+        if(prop > t0 && prop < t1) subset.push(p);
       });
-      ptsSubset.push(p1);
-      if(ptsSubset.length<2) return;
+      subset.push(p1);
+      if(subset.length < 2) return;
 
+      let l;
       if(side==="B") {
-        const l=L.polyline(ptsSubset,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_BOTH,opacity:0.9,interactive:false});
-        l.addTo(partialLayerGroup); layers.push(l);
+        l = L.polyline(subset, {color:PARTIAL_COLOUR, weight:PARTIAL_WEIGHT_BOTH, opacity:0.9, interactive:false});
       } else {
-        const offsetPts=offsetPolyline(ptsSubset, side==="F" ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
-        const l=L.polyline(offsetPts,{color:PARTIAL_COLOUR,weight:PARTIAL_WEIGHT_SINGLE,opacity:0.9,interactive:false});
-        l.addTo(partialLayerGroup); layers.push(l);
+        const offsetPts = offsetPolyline(subset, side==="F" ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
+        l = L.polyline(offsetPts, {color:PARTIAL_COLOUR, weight:PARTIAL_WEIGHT_SINGLE, opacity:0.9, interactive:false});
       }
+      l.addTo(partialLayerGroup); layers.push(l);
     });
 
-    partialLayers.set(road._rowIdx,layers);
+    partialLayers.set(road._rowIdx, layers);
   }
 
-  // Re-render partials on zoom change
-  map.on("zoomend",()=>renderAllPartials());
+  map.on("zoomend", ()=>renderAllPartials());
 
   // ── Misc helpers ──────────────────────────────────────────────────────────────
   function escHtml(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -492,8 +607,6 @@
     `;
   }
 
-  // Attach edit button listener after popup opens — avoids inline onclick
-  // with embedded JSON which breaks on street names containing apostrophes.
   map.on("popupopen", function(e) {
     const btn = e.popup.getElement().querySelector(".popup-status-btn[data-row-idx]");
     if (!btn) return;
@@ -837,19 +950,16 @@
   }
   function updateDropdownFocus(opts){opts.forEach((el,i)=>el.classList.toggle("focused",i===dropdownFocusIdx));if(opts[dropdownFocusIdx])opts[dropdownFocusIdx].scrollIntoView({block:"nearest"});}
   function selectRoad(idx,e){e.preventDefault();const dd=document.getElementById("road-dropdown");if(!dd._matches)return;document.getElementById("road-search-input").value=dd._matches[idx].name;selectedRoadName=null;activateRoad(dd._matches[idx]);closeDropdown();}
-  // Directly update opacity of all dimmed (non-selected) layers via setStyle,
-  // without recreating them. entry.spec.isSel===false && hasSel means dimmed.
+
   function applyFadeOpacity(opac) {
     fadeCurrent = opac;
     renderedLayers.forEach(entry => {
-      if(!entry.spec || entry.spec.isSel) return; // skip selected road's own layers
-      if(!selectedRoadName) return;                // nothing selected, nothing to dim
+      if(!entry.spec || entry.spec.isSel) return;
+      if(!selectedRoadName) return;
       entry.layers.forEach(l => {
         if(!l.setStyle) return;
-        // Skip hit layers (transparent, weight 20) and glow layers (white)
         if(l.options.color === "transparent" || l.options.color === "#fff") return;
         if(l.setRadius) {
-          // circleMarker
           l.setStyle({ opacity: opac, fillOpacity: opac * (0.8 / 0.15) > 0.8 ? 0.8 : opac * (0.8 / 0.15) });
         } else {
           l.setStyle({ opacity: opac });
@@ -859,12 +969,11 @@
   }
 
   function activateRoad(road) {
-    // Cancel any in-progress fade
     if(fadeAnimFrame) { cancelAnimationFrame(fadeAnimFrame); fadeAnimFrame=null; }
     if(fadeTimer)     { clearTimeout(fadeTimer); fadeTimer=null; }
 
     selectedRoadName=road.name;
-    fadeCurrent=0.05; // layers start nearly invisible and fade up to 0.85 over 4s
+    fadeCurrent=0.05;
 
     const fitPts=[],fallPts=[];
     road.rows.forEach(row=>{
@@ -880,8 +989,6 @@
     if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1),{maxZoom:17});
     if(isMobile()) closeSidebar();
 
-    // renderLines creates layers at fadeCurrent=0.05 (nearly invisible),
-    // then a single rAF loop fades them up to 0.85 over 4 seconds.
     fadeCurrent = 0.05;
     renderLines();
 
@@ -890,7 +997,7 @@
 
     function fadeUpStep(now) {
       const t = Math.min(1, (now - fadeStart) / FADE_DURATION);
-      const opac = 0.05 + (0.85 - 0.05) * t; // linear, constant rate
+      const opac = 0.05 + (0.85 - 0.05) * t;
       applyFadeOpacity(opac);
       if(t < 1) {
         fadeAnimFrame = requestAnimationFrame(fadeUpStep);
@@ -898,7 +1005,7 @@
         fadeAnimFrame = null;
         fadeCurrent = 0.85;
         selectedRoadName = null;
-        renderLines(); // clean reset
+        renderLines();
       }
     }
     fadeAnimFrame = requestAnimationFrame(fadeUpStep);
@@ -912,8 +1019,9 @@
     fadeCurrent=0.85;
     renderLines();
   }
-    function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
+  function closeDropdown(){document.getElementById("road-dropdown").classList.remove("open");dropdownFocusIdx=-1;}
   function clearRoadSearch(){document.getElementById("road-search-input").value="";document.getElementById("road-search-clear").style.display="none";clearSelection();closeDropdown();}
+
   // ── Sidebar helpers (mobile) ─────────────────────────────────────────────────
   function isMobile() { return window.innerWidth <= 640; }
   function closeSidebar() { document.getElementById("sidebar").classList.remove("open"); }
@@ -1046,10 +1154,6 @@
   }
 
   // ── Admin panel ───────────────────────────────────────────────────────────────
-  // Shows a modal listing editors with standing-change counts.
-  // Requires the user to be signed in and authorised.
-  // Purge requires typing the target email to confirm.
-
   function openAdminPanel() {
     if(!tokenIsValid()||!authAuthorised) {
       showError("Sign in first to access the editor history panel.");
@@ -1094,7 +1198,6 @@
         <div id="admin-editor-list" style="margin-bottom:12px;">${rows}</div>
         <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>`;
     } else if(state==="confirm") {
-      // errorMsg here is actually the target email, editors[0] is standingChanges count
       const targetEmail = errorMsg;
       const count = editors;
       inner = `
@@ -1110,7 +1213,6 @@
         </div>
         <div id="admin-confirm-status" style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:8px;"></div>`;
     } else if(state==="done") {
-      // errorMsg = result summary string
       inner = `
         <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);margin-bottom:12px;">✓ Revert complete</div>
         <div style="font-size:12px;color:var(--text);margin-bottom:12px;">${escHtml(errorMsg)}</div>
@@ -1127,9 +1229,6 @@
   }
 
   // ── GPS Ward Locator ──────────────────────────────────────────────────────────
-  // Requests the user's location, finds which ward they're in (or nearest to)
-  // by checking proximity to road centroids, solos that ward, drops a pin,
-  // and pans to them.
   let gpsMarker = null;
 
   function locateAndFilterWard() {
@@ -1147,9 +1246,6 @@
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
 
-        // Find the ward whose roads are collectively closest to this point.
-        // We compute the mean squared distance from (lat,lon) to each road's
-        // @lat/@lon centroid, grouped by ward, and pick the minimum.
         const wardDistSq = {};
         const wardCount  = {};
         allRoads.forEach(r => {
@@ -1170,7 +1266,6 @@
           if(avg < bestAvg) { bestAvg = avg; bestWard = w; }
         });
 
-        // Solo the matched ward
         if(bestWard) {
           Object.keys(wardCounts).forEach(w => {
             if(w === bestWard) activeWards.add(w);
@@ -1181,15 +1276,10 @@
           updateStats();
         }
 
-        // Drop / update the location marker
         if(gpsMarker) map.removeLayer(gpsMarker);
         gpsMarker = L.circleMarker([lat, lon], {
-          radius: 8,
-          color: "#fff",
-          fillColor: "#4f8ef7",
-          fillOpacity: 1,
-          weight: 2,
-          interactive: true
+          radius: 8, color: "#fff", fillColor: "#4f8ef7",
+          fillOpacity: 1, weight: 2, interactive: true
         }).addTo(map)
           .bindPopup(bestWard
             ? `<div class="popup-street">You are here</div><div class="popup-ward">${escHtml(bestWard)}</div>`
@@ -1242,7 +1332,6 @@
           if(btn) btn.disabled=false;
           return;
         }
-        // Force a full data reload so the map reflects reverted values
         lastChecksum=null;
         const summary=`Reverted ${data.revertedCount} change${data.revertedCount!==1?"s":""} across roads.`
           +(data.skippedCount?` ${data.skippedCount} already overwritten by others — left untouched.`:"");
@@ -1255,14 +1344,14 @@
       });
   }
 
-
+  // ── Partial editor ────────────────────────────────────────────────────────────
   function openPartialEditor(rowIdx) {
     const row=allRoads.find(r=>r._rowIdx===rowIdx);
     if(!row) return;
     const geomData=getRoadGeomData(row);
     if(!geomData) return;
     map.closePopup();
-    enterDrawMode(row,geomData);
+    enterDrawMode(row, geomData);
   }
 
   function setDrawHint(msg) {
@@ -1274,8 +1363,7 @@
   function setLayersInteractive(interactive) {
     renderedLayers.forEach(entry=>{
       entry.layers.forEach(l=>{
-        if(l.options&&l.options.weight===20) { // hit layers only (transparent, weight 20)
-          if(interactive) l.addInteractiveTarget(l._path||l._renderer&&l._renderer._container);
+        if(l.options&&l.options.weight===20) {
           l.options.interactive=interactive;
           if(l._path) l._path.style.pointerEvents=interactive?"visiblePainted":"none";
         }
@@ -1283,13 +1371,11 @@
     });
   }
 
-  function enterDrawMode(road,geomData) {
+  function enterDrawMode(road, geomData) {
     drawState="place-start";
     drawRoad=road;
-    drawSegPts=geomData.pts;
-    drawSegBreaks=geomData.breaks;
-    drawStartProp=null;
-    drawEndProp=null;
+    drawStart=null;
+    drawEnd=null;
     drawBothSides=false;
     drawFlipped=false;
     drawActiveHandle=null;
@@ -1298,9 +1384,10 @@
 
     drawRoadHighlightLayers.forEach(l=>partialLayerGroup.removeLayer(l));
     drawRoadHighlightLayers=[];
-   geomData.sortedSegs.forEach(seg => {
-    const hl = L.polyline(seg, {color:"#fff", weight:10, opacity:0.2, interactive:false});
-    hl.addTo(partialLayerGroup); drawRoadHighlightLayers.push(hl);
+    // Use sortedSegs for the visual highlight glow only — purely cosmetic
+    geomData.sortedSegs.forEach(seg=>{
+      const hl=L.polyline(seg,{color:"#fff",weight:10,opacity:0.2,interactive:false});
+      hl.addTo(partialLayerGroup); drawRoadHighlightLayers.push(hl);
     });
 
     document.getElementById("map").classList.add("draw-mode");
@@ -1312,8 +1399,8 @@
     }
   }
 
-  function exitDrawMode(geomData) {
-    drawState=null; drawRoad=null;
+  function exitDrawMode() {
+    drawState=null; drawRoad=null; drawStart=null; drawEnd=null;
     drawPreviewLayers.forEach(l=>partialLayerGroup.removeLayer(l)); drawPreviewLayers=[];
     drawRoadHighlightLayers.forEach(l=>partialLayerGroup.removeLayer(l)); drawRoadHighlightLayers=[];
     if(drawHandleStart){partialLayerGroup.removeLayer(drawHandleStart);drawHandleStart=null;}
@@ -1330,19 +1417,19 @@
     const geomData=getRoadGeomData(drawRoad);
     if(!geomData) return;
 
-    const snapped=snapToRoad(e.latlng,geomData.pts,geomData.cumLens);
+    const snapped = snapToNearestSegment(e.latlng, geomData.segs);
 
     if(drawState==="place-start") {
-      drawStartProp=snapped.prop;
-      drawEndProp=null;
+      drawStart=snapped;
+      drawEnd=null;
       drawState="place-end";
       placeHandles(geomData);
       setDrawHint("Tap road to place end point");
 
     } else if(drawState==="place-end") {
-      drawEndProp=snapped.prop;
-      if(Math.abs(drawEndProp-drawStartProp)<0.001) return;
-      if(drawStartProp>drawEndProp){[drawStartProp,drawEndProp]=[drawEndProp,drawStartProp];}
+      drawEnd=snapped;
+      // Require a meaningful selection
+      if(drawStart.segIdx===drawEnd.segIdx && Math.abs(drawEnd.t - drawStart.t) < 0.001) return;
       drawState="adjust";
       drawActiveHandle=null;
       placeHandles(geomData);
@@ -1353,11 +1440,9 @@
     } else if(drawState==="adjust") {
       if(drawActiveHandle) {
         if(drawActiveHandle==="start") {
-          drawStartProp=snapped.prop;
-          if(drawStartProp>=drawEndProp) drawStartProp=Math.max(0,drawEndProp-0.001);
+          drawStart=snapped;
         } else {
-          drawEndProp=snapped.prop;
-          if(drawEndProp<=drawStartProp) drawEndProp=Math.min(1,drawStartProp+0.001);
+          drawEnd=snapped;
         }
         drawActiveHandle=null;
         placeHandles(geomData);
@@ -1370,15 +1455,20 @@
   function placeHandles(geomData) {
     if(drawHandleStart){partialLayerGroup.removeLayer(drawHandleStart);drawHandleStart=null;}
     if(drawHandleEnd  ){partialLayerGroup.removeLayer(drawHandleEnd);  drawHandleEnd=null;}
-    if(drawStartProp!==null) {
-      const pt=interpolateAlongPts(geomData.pts,geomData.cumLens,drawStartProp);
-      drawHandleStart=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:PARTIAL_COLOUR,fillOpacity:1,weight:2,interactive:true,draggable:false,zIndexOffset:1000});
+
+    if(drawStart) {
+      const segPts = geomData.segs[drawStart.segIdx];
+      const segCL  = geomData.segCumLens[drawStart.segIdx];
+      const pt = interpolateAlongPts(segPts, segCL, drawStart.t);
+      drawHandleStart=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:PARTIAL_COLOUR,fillOpacity:1,weight:2,interactive:true,zIndexOffset:1000});
       drawHandleStart.addTo(partialLayerGroup);
       drawHandleStart.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="start";setDrawHint("Tap road to move start point");});
     }
-    if(drawEndProp!==null) {
-      const pt=interpolateAlongPts(geomData.pts,geomData.cumLens,drawEndProp);
-      drawHandleEnd=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:"#0a4a28",fillOpacity:1,weight:2,interactive:true,draggable:false,zIndexOffset:1000});
+    if(drawEnd) {
+      const segPts = geomData.segs[drawEnd.segIdx];
+      const segCL  = geomData.segCumLens[drawEnd.segIdx];
+      const pt = interpolateAlongPts(segPts, segCL, drawEnd.t);
+      drawHandleEnd=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:"#0a4a28",fillOpacity:1,weight:2,interactive:true,zIndexOffset:1000});
       drawHandleEnd.addTo(partialLayerGroup);
       drawHandleEnd.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="end";setDrawHint("Tap road to move end point");});
     }
@@ -1386,19 +1476,13 @@
 
   function sortSegmentsTopologically(segs) {
     if (segs.length <= 1) return segs;
-    const SNAP_THRESH = 0.0003; // degrees — ~30m tolerance for endpoint matching
-
-    function dist(a, b) {
-      return Math.hypot(a[0]-b[0], a[1]-b[1]);
-    }
+    function dist(a, b) { return Math.hypot(a[0]-b[0], a[1]-b[1]); }
     function maybeFlip(seg, prevEnd) {
       if (dist(prevEnd, seg[0]) <= dist(prevEnd, seg[seg.length-1])) return seg;
       return [...seg].reverse();
     }
-
     const remaining = segs.map(s => [...s]);
     const sorted = [remaining.splice(0, 1)[0]];
-
     while (remaining.length) {
       const prevEnd = sorted[sorted.length-1][sorted[sorted.length-1].length-1];
       let bestIdx = 0, bestDist = Infinity;
@@ -1412,44 +1496,38 @@
     return sorted;
   }
 
+  // Build the preview polyline(s) for the current draw selection.
+  // Uses buildSegmentPath to traverse segments correctly.
   function updateDrawPreview(geomData) {
     drawPreviewLayers.forEach(l => partialLayerGroup.removeLayer(l));
     drawPreviewLayers = [];
-    if (drawStartProp === null || drawEndProp === null) return;
-    const t0 = Math.min(drawStartProp, drawEndProp);
-    const t1 = Math.max(drawStartProp, drawEndProp);
+    if (!drawStart || !drawEnd) return;
 
-    geomData.breaks.forEach(brk => {
-      const { startProp, endProp, segIdx } = brk;
-      const segLen = endProp - startProp;
-      if (segLen <= 0) return;
-      const overlapStart = Math.max(t0, startProp);
-      const overlapEnd   = Math.min(t1, endProp);
-      if (overlapEnd <= overlapStart) return;
+    const pathEntries = buildSegmentPath(geomData.segs, drawStart, drawEnd);
+    if (!pathEntries.length) return;
 
+    pathEntries.forEach(({segIdx, t0, t1}) => {
       const segPts = geomData.segs[segIdx];
-      const segCL  = cumulativeLengths(segPts);
-      const segTotal = segCL[segCL.length - 1];
+      const segCL  = geomData.segCumLens[segIdx];
+      if(!segPts || !segCL) return;
 
-      const st = (overlapStart - startProp) / segLen;
-      const et = (overlapEnd   - startProp) / segLen;
-
-      const p0 = interpolateAlongPts(segPts, segCL, st);
-      const p1 = interpolateAlongPts(segPts, segCL, et);
+      const segTotal = segCL[segCL.length-1];
+      const p0 = interpolateAlongPts(segPts, segCL, t0);
+      const p1 = interpolateAlongPts(segPts, segCL, t1);
       let subset = [p0];
       segPts.forEach((p, i) => {
         const prop = segTotal > 0 ? segCL[i] / segTotal : 0;
-        if (prop > st && prop < et) subset.push(p);
+        if(prop > t0 && prop < t1) subset.push(p);
       });
       subset.push(p1);
-      if (subset.length < 2) return;
+      if(subset.length < 2) return;
 
       let layer;
-      if (drawBothSides) {
-        layer = L.polyline(subset, { color: PARTIAL_COLOUR, weight: PARTIAL_WEIGHT_BOTH, opacity: 0.85, interactive: false, dashArray: "8 4" });
+      if(drawBothSides) {
+        layer = L.polyline(subset, {color:PARTIAL_COLOUR, weight:PARTIAL_WEIGHT_BOTH, opacity:0.85, interactive:false, dashArray:"8 4"});
       } else {
         const offsetPts = offsetPolyline(subset, drawFlipped ? -PARTIAL_OFFSET_M : PARTIAL_OFFSET_M);
-        layer = L.polyline(offsetPts, { color: PARTIAL_COLOUR, weight: PARTIAL_WEIGHT_SINGLE, opacity: 0.85, interactive: false, dashArray: "8 4" });
+        layer = L.polyline(offsetPts, {color:PARTIAL_COLOUR, weight:PARTIAL_WEIGHT_SINGLE, opacity:0.85, interactive:false, dashArray:"8 4"});
       }
       layer.addTo(partialLayerGroup);
       drawPreviewLayers.push(layer);
@@ -1458,9 +1536,18 @@
 
   function showDrawControls(geomData) {
     map.eachLayer(l=>{if(l._isDrawControls)map.removeLayer(l);});
-    if(drawStartProp===null||drawEndProp===null) return;
-    const midProp=(drawStartProp+drawEndProp)/2;
-    const midPt=interpolateAlongPts(geomData.pts,geomData.cumLens,midProp);
+    if(!drawStart||!drawEnd) return;
+
+    // Place the popup at the geographic midpoint of the path
+    const pathEntries = buildSegmentPath(geomData.segs, drawStart, drawEnd);
+    let midPt = drawStart.latlng;
+    if(pathEntries.length) {
+      const mid = pathEntries[Math.floor(pathEntries.length/2)];
+      const segPts = geomData.segs[mid.segIdx];
+      const segCL  = geomData.segCumLens[mid.segIdx];
+      midPt = interpolateAlongPts(segPts, segCL, (mid.t0+mid.t1)/2);
+    }
+
     const hasExisting=(drawRoad.partial_geometry||"-")!=="-";
 
     const content=document.createElement("div");
@@ -1502,31 +1589,29 @@
       updateDrawPreview(geomData);
     });
     content.querySelector("#draw-btn-save").addEventListener("click",()=>savePartialGeom(geomData,content.querySelector("#draw-save-status")));
-    content.querySelector("#draw-btn-cancel").addEventListener("click",()=>{exitDrawMode(geomData);map.closePopup();});
+    content.querySelector("#draw-btn-cancel").addEventListener("click",()=>{exitDrawMode();map.closePopup();});
     const clearBtn=content.querySelector("#draw-btn-clear");
     if(clearBtn) clearBtn.addEventListener("click",()=>clearPartialGeom(geomData,content.querySelector("#draw-save-status")));
   }
 
-  async function savePartialGeom(geomData,statusEl) {
-    if(drawStartProp===null||drawEndProp===null) return;
-    const t0=Math.min(drawStartProp,drawEndProp);
-    const t1=Math.max(drawStartProp,drawEndProp);
-    const side=drawBothSides?"B":(drawFlipped?"F":"S");
+  async function savePartialGeom(geomData, statusEl) {
+    if(!drawStart || !drawEnd) return;
 
-    const segProps=globalPropToSegProps(t0,t1,geomData);
-    if(!segProps.length){
-      if((drawRoad.partial_geometry||"-")!=="-"){
-        exitDrawMode(geomData); map.closePopup(); renderAllPartials(); updateStats();
+    const pathEntries = buildSegmentPath(geomData.segs, drawStart, drawEnd);
+    if(!pathEntries.length) {
+      if((drawRoad.partial_geometry||"-")!=="-") {
+        exitDrawMode(); map.closePopup(); renderAllPartials(); updateStats();
       } else {
         if(statusEl) statusEl.textContent="No section drawn — tap road to place points first.";
       }
       return;
     }
 
-    const newParts=segProps.map(sp=>({segIdx:sp.segIdx,t0:sp.t0,t1:sp.t1,side}));
-    const existingParts=parsePartialGeom(drawRoad.partial_geometry||"");
-    const allParts=[...existingParts,...newParts];
-    const encoded=encodePartialGeom(allParts);
+    const side = drawBothSides ? "B" : (drawFlipped ? "F" : "S");
+    const newParts = pathEntries.map(e => ({segIdx: e.segIdx, t0: e.t0, t1: e.t1, side}));
+    const existingParts = parsePartialGeom(drawRoad.partial_geometry||"");
+    const allParts = [...existingParts, ...newParts];
+    const encoded = encodePartialGeom(allParts);
 
     if(statusEl) statusEl.textContent="Saving…";
     try{
@@ -1538,11 +1623,11 @@
       drawRoad.partial_geometry=encoded;
       if(statusEl) statusEl.textContent="Saved ✓";
       recomputeAndSaveChecksum();
-      setTimeout(()=>{exitDrawMode(geomData);map.closePopup();renderAllPartials();updateStats();},1200);
+      setTimeout(()=>{exitDrawMode();map.closePopup();renderAllPartials();updateStats();},1200);
     }catch(e){if(statusEl)statusEl.textContent="Network error: "+e.message;}
   }
 
-  async function clearPartialGeom(geomData,statusEl) {
+  async function clearPartialGeom(geomData, statusEl) {
     if(statusEl) statusEl.textContent="Clearing…";
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
@@ -1553,7 +1638,7 @@
       drawRoad.partial_geometry="-";
       if(statusEl) statusEl.textContent="Cleared ✓";
       recomputeAndSaveChecksum();
-      setTimeout(()=>{exitDrawMode(geomData);map.closePopup();renderAllPartials();updateStats();},1200);
+      setTimeout(()=>{exitDrawMode();map.closePopup();renderAllPartials();updateStats();},1200);
     }catch(e){if(statusEl)statusEl.textContent="Network error: "+e.message;}
   }
 
@@ -1582,7 +1667,6 @@
   // ── Boot ──────────────────────────────────────────────────────────────────────
   (async function boot() {
     restoreAuthSession();
-    // Open sidebar by default on mobile so filters are immediately visible
     if(isMobile()) openSidebar();
     const cached=loadFromCache();
     if(cached&&cached.rows&&cached.rows.length){
