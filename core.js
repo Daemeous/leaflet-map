@@ -294,21 +294,32 @@
   function getRoadGeomData(road) {
     const rawSegs = parseWKT(road.road_geometry);
     if (!rawSegs.length) return null;
+    const sortedSegs = sortSegmentsTopologically(rawSegs);
 
-    // Keep original WKT order for stable seg indices
-    const pts = rawSegs.flat();
+    // Map sorted positions back to raw WKT indices for stable encoding
+    const sortedToRawIdx = sortedSegs.map(sorted =>
+        rawSegs.findIndex(raw =>
+            raw[0][0] === sorted[0][0] && raw[0][1] === sorted[0][1] &&
+            raw[raw.length-1][0] === sorted[sorted.length-1][0] &&
+            raw[raw.length-1][1] === sorted[sorted.length-1][1]
+        )
+    );
+
+    const pts = sortedSegs.flat();
     const cumLens = cumulativeLengths(pts);
     const total = cumLens[cumLens.length - 1];
-
     const breaks = [];
     let idx = 0;
-    rawSegs.forEach(seg => {
+    sortedSegs.forEach((seg, sortedIdx) => {
         const startProp = total > 0 ? cumLens[idx] / total : 0;
         idx += seg.length;
         const endIdx = Math.min(idx - 1, cumLens.length - 1);
         const endProp = total > 0 ? cumLens[endIdx] / total : 1;
-        breaks.push({ startProp, endProp, segIdx: breaks.length });
+        breaks.push({ startProp, endProp, segIdx: sortedToRawIdx[sortedIdx] });
     });
+
+    return { pts, cumLens, total, breaks, segs: sortedSegs, sortedSegs };
+}
 
     // Sorted version used only for rendering the road highlight / handle snapping
     const sortedSegs = sortSegmentsTopologically(rawSegs);
