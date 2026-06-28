@@ -140,6 +140,10 @@
 
   injectAppShell();
 
+   // ── Prevent sidebar/toggle taps reaching the map (fixes mobile stuck-closed bug) ──
+   L.DomEvent.disableClickPropagation(document.getElementById("sidebar"));
+   L.DomEvent.disableClickPropagation(document.getElementById("sidebar-toggle"));
+
   // ── Map ───────────────────────────────────────────────────────────────────────
   const map = L.map("map",{zoomControl:false}).setView(INITIAL_VIEW, INITIAL_ZOOM);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
