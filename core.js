@@ -109,6 +109,7 @@
       <div class="filter-section">
         <div class="filter-label">Ward</div>
         <button class="ward-all-btn" id="gps-locate-btn" onclick="locateAndFilterWard()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">⊕ Find my ward</button>
+        <button class="ward-all-btn" id="live-track-btn" onclick="toggleLiveTracking()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">◉ Live tracking: Off</button>
         <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
         <button class="ward-all-btn" onclick="selectAllWards()">Select / deselect all</button>
         <div class="ward-list" id="ward-list"></div>
@@ -119,7 +120,7 @@
     </div>
   </aside>
   <div id="map-wrap">
-    <button id="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+    <button id="sidebar-toggle" onclick="toggleSidebar(event)">☰</button>
     <div id="map"></div>
     <div id="draw-hint"></div>
     <div id="loading"><div class="spinner"></div><p id="loading-msg">Loading road data…</p></div>
@@ -1028,12 +1029,27 @@
   function isMobile() { return window.innerWidth <= 640; }
   function closeSidebar() { document.getElementById("sidebar").classList.remove("open"); }
   function openSidebar()  { document.getElementById("sidebar").classList.add("open"); }
-  function toggleSidebar(){ document.getElementById("sidebar").classList.toggle("open"); }
+  let lastSidebarToggleTime = 0;
+  function toggleSidebar(e){
+    if(e){ e.preventDefault(); e.stopPropagation(); if(e.stopImmediatePropagation) e.stopImmediatePropagation(); }
+    // Guard against the mobile "ghost click" some browsers fire ~250-350ms after
+    // a touchend at the same screen coordinates. Without this, a single tap on
+    // the hamburger button could open the sidebar and then immediately receive
+    // a second synthetic click on the same still-in-place button, closing it
+    // again before the person ever sees it open.
+    const now = Date.now();
+    if(now - lastSidebarToggleTime < 400) return;
+    lastSidebarToggleTime = now;
+    document.getElementById("sidebar").classList.toggle("open");
+  }
 
   map.on("click",e=>{
     if(drawState) { handleDrawClick(e); return; }
     clearSelection();
-    if(isMobile()) closeSidebar();
+    // Skip auto-closing if this click landed within the ghost-click guard
+    // window of a sidebar toggle — avoids the same double-fire re-closing
+    // a sidebar that was just opened.
+    if(isMobile() && Date.now()-lastSidebarToggleTime>400) closeSidebar();
   });
   document.addEventListener("click",e=>{if(!e.target.closest(".road-search-wrap"))closeDropdown();});
 
@@ -1230,8 +1246,73 @@
       </div>`;
   }
 
+  // ── Nearest-ward lookup (point-to-nearest-geometry, not ward centroid) ───────
+  // We don't have ward boundary polygons at runtime — only per-road geometry.
+  // Averaging distance to every point in a ward (the old approach) biases
+  // toward whichever ward's roads happen to be clustered nearest you overall,
+  // which is why it could place you in an adjacent ward. Instead, this finds
+  // the single closest point on the single closest road anywhere in the
+  // dataset and uses THAT road's ward — a much better proxy for "which ward
+  // am I standing in", since a road right next to you on the correct side of
+  // a boundary will always beat roads in a neighbouring ward that are merely
+  // clustered further away on average.
+  function findNearestWardToPoint(lat, lon) {
+    if(!allRoads.length) return null;
+    const clickPt = turf.point([lon, lat]);
+
+    // Phase 1 — cheap coarse pass: rank roads by squared-degree distance from
+    // the user to a single representative point (marker coords, or first
+    // vertex of the road geometry), and keep only the closest handful.
+    const candidates = [];
+    allRoads.forEach(r => {
+      const segs = parseWKT(r.road_geometry);
+      let approxLat = parseFloat(r["@lat"]);
+      let approxLon = parseFloat(r["@lon"]);
+      if((isNaN(approxLat) || isNaN(approxLon)) && segs.length) {
+        approxLat = segs[0][0][0];
+        approxLon = segs[0][0][1];
+      }
+      if(isNaN(approxLat) || isNaN(approxLon)) return;
+      const dLat = approxLat - lat, dLon = approxLon - lon;
+      candidates.push({ road: r, segs, approxDistSq: dLat*dLat + dLon*dLon });
+    });
+    if(!candidates.length) return null;
+    candidates.sort((a,b) => a.approxDistSq - b.approxDistSq);
+    const shortlist = candidates.slice(0, 60);
+
+    // Phase 2 — precise pass: for the shortlisted roads, measure the true
+    // nearest-point-on-line distance (in metres) along their full geometry.
+    let bestWard = null, bestDist = Infinity;
+    shortlist.forEach(c => {
+      let dMin = Infinity;
+      if(c.segs.length) {
+        c.segs.forEach(pts => {
+          for(let i = 1; i < pts.length; i++) {
+            const a = [pts[i-1][1], pts[i-1][0]];
+            const b = [pts[i][1],   pts[i][0]];
+            try {
+              const line = turf.lineString([a, b]);
+              const snapped = turf.nearestPointOnLine(line, clickPt, {units:"meters"});
+              if(snapped.properties.dist < dMin) dMin = snapped.properties.dist;
+            } catch(e) { /* degenerate segment, skip */ }
+          }
+        });
+      } else {
+        const rlat = parseFloat(c.road["@lat"]), rlon = parseFloat(c.road["@lon"]);
+        if(!isNaN(rlat) && !isNaN(rlon)) dMin = turf.distance(clickPt, turf.point([rlon, rlat]), {units:"meters"});
+      }
+      if(dMin < bestDist) { bestDist = dMin; bestWard = (c.road.Ward || "Unknown").trim(); }
+    });
+
+    return bestWard ? { ward: bestWard, distMeters: bestDist } : null;
+  }
+
   // ── GPS Ward Locator ──────────────────────────────────────────────────────────
   let gpsMarker = null;
+  let liveTrackWatchId  = null;
+  let liveTrackMarker   = null;
+  let liveTrackAccuracy = null;
+  let liveTrackCentered = false;
 
   function locateAndFilterWard() {
     const btn = document.getElementById("gps-locate-btn");
@@ -1248,25 +1329,11 @@
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
 
-        const wardDistSq = {};
-        const wardCount  = {};
-        allRoads.forEach(r => {
-          const rlat = parseFloat(r["@lat"]);
-          const rlon = parseFloat(r["@lon"]);
-          if(isNaN(rlat) || isNaN(rlon)) return;
-          const ward = (r.Ward || "Unknown").trim();
-          const dLat = rlat - lat;
-          const dLon = rlon - lon;
-          const dsq  = dLat*dLat + dLon*dLon;
-          wardDistSq[ward] = (wardDistSq[ward] || 0) + dsq;
-          wardCount[ward]  = (wardCount[ward]  || 0) + 1;
-        });
-
-        let bestWard = null, bestAvg = Infinity;
-        Object.keys(wardDistSq).forEach(w => {
-          const avg = wardDistSq[w] / wardCount[w];
-          if(avg < bestAvg) { bestAvg = avg; bestWard = w; }
-        });
+        // Find the ward whose nearest mapped road is actually closest to
+        // where you are standing, rather than the ward whose roads are on
+        // average nearest overall.
+        const nearest = findNearestWardToPoint(lat, lon);
+        const bestWard = nearest ? nearest.ward : null;
 
         if(bestWard) {
           Object.keys(wardCounts).forEach(w => {
@@ -1308,6 +1375,78 @@
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  }
+
+  // ── Live location tracking ───────────────────────────────────────────────────
+  function toggleLiveTracking() {
+    if(liveTrackWatchId !== null) { stopLiveTracking(); return; }
+    if(!navigator.geolocation) {
+      showError("Geolocation is not supported by your browser.");
+      return;
+    }
+    const btn = document.getElementById("live-track-btn");
+    btn.textContent = "◉ Live tracking: Starting…";
+    liveTrackCentered = false;
+
+    liveTrackWatchId = navigator.geolocation.watchPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const acc = pos.coords.accuracy;
+
+        if(!liveTrackMarker) {
+          liveTrackMarker = L.circleMarker([lat, lon], {
+            radius: 8, color: "#fff", fillColor: "#4f8ef7",
+            fillOpacity: 1, weight: 2, interactive: false
+          }).addTo(map);
+        } else {
+          liveTrackMarker.setLatLng([lat, lon]);
+        }
+
+        if(acc && !isNaN(acc)) {
+          if(!liveTrackAccuracy) {
+            liveTrackAccuracy = L.circle([lat, lon], {
+              radius: acc, color: "#4f8ef7", weight: 1, opacity: 0.4,
+              fillColor: "#4f8ef7", fillOpacity: 0.1, interactive: false
+            }).addTo(map);
+          } else {
+            liveTrackAccuracy.setLatLng([lat, lon]);
+            liveTrackAccuracy.setRadius(acc);
+          }
+        }
+
+        // Only auto-centre on the first fix so we don't yank the map around
+        // under someone who has panned off to look at something else.
+        if(!liveTrackCentered) {
+          map.setView([lat, lon], Math.max(map.getZoom(), 15));
+          liveTrackCentered = true;
+        }
+
+        btn.textContent = "◉ Live tracking: On";
+        btn.style.background = "rgba(79,142,247,0.15)";
+      },
+      err => {
+        const msgs = {
+          1: "Location access denied — please allow location in your browser settings.",
+          2: "Location unavailable — check your signal and try again.",
+          3: "Location request timed out — try again."
+        };
+        showError(msgs[err.code] || "Location error: " + err.message);
+        stopLiveTracking();
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+  }
+
+  function stopLiveTracking() {
+    if(liveTrackWatchId !== null) {
+      navigator.geolocation.clearWatch(liveTrackWatchId);
+      liveTrackWatchId = null;
+    }
+    if(liveTrackMarker)   { map.removeLayer(liveTrackMarker);   liveTrackMarker = null; }
+    if(liveTrackAccuracy) { map.removeLayer(liveTrackAccuracy); liveTrackAccuracy = null; }
+    const btn = document.getElementById("live-track-btn");
+    if(btn) { btn.textContent = "◉ Live tracking: Off"; btn.style.background = ""; }
   }
 
   function closeAdminModal() {
@@ -1665,6 +1804,8 @@
   window.adminConfirmRevert = adminConfirmRevert;
   window.adminExecuteRevert = adminExecuteRevert;
   window.locateAndFilterWard = locateAndFilterWard;
+  window.toggleSidebar = toggleSidebar;
+  window.toggleLiveTracking = toggleLiveTracking;
 
   // ── Boot ──────────────────────────────────────────────────────────────────────
   (async function boot() {
