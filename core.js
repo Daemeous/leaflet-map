@@ -80,7 +80,7 @@
     <div class="sidebar-head">
       <h1>${escHtml(CFG.TITLE || "Leafleting Map")}</h1>
       <p>${escHtml(CFG.SUBTITLE || "Filter roads by ward or completion status.")}</p>
-      <div id="sync-bar" title="Click to check for updates now" onclick="manualRefresh()">
+      <div id="sync-bar" title="Click to check for updates · Shift-click / long-press to force full reload" onclick="handleSyncBarClick(event)">
         <div id="sync-left"><div id="sync-dot"></div><span id="sync-text">Loading…</span></div>
         <span id="sync-icon">↻</span>
       </div>
@@ -805,6 +805,9 @@
       return{rows:JSON.parse(raw),checksum:localStorage.getItem(LS_CHECKSUM)||"",time:new Date(localStorage.getItem(LS_TIME)||0)};
     }catch(e){return null;}
   }
+  function clearCache() {
+    try{localStorage.removeItem(LS_DATA);localStorage.removeItem(LS_CHECKSUM);localStorage.removeItem(LS_TIME);}catch(e){}
+  }
 
   // ── Ingest ─────────────────────────────────────────────────────────────────────
   function ingestRows(rows,checksum,timestamp,isFirstLoad) {
@@ -814,6 +817,16 @@
       r._rowIdx=i+2;
       newByIdx.set(r._rowIdx,r);
     });
+
+    // Sanity check: a sheet that previously had roads but now parses to zero
+    // valid rows almost always means a broken/renamed header (e.g. the
+    // "Street" column header got cleared or retyped) rather than a genuine
+    // "no roads" state. The checksum can't catch this on its own since it's
+    // built only from status counts, so flag it loudly instead of quietly
+    // accepting an empty dataset.
+    if(newByIdx.size===0 && rows.length>0) {
+      showError("Sheet returned 0 valid roads out of "+rows.length+" rows — check that the 'Street' column header is intact.");
+    }
 
     if(isFirstLoad) {
       renderedLayers.forEach(entry=>{entry.layers.forEach(l=>{Object.values(layerGroups).forEach(g=>g.removeLayer(l));});});
@@ -894,6 +907,73 @@
   }
   function schedulePoll(){clearTimeout(pollTimer);pollTimer=setTimeout(()=>checkForUpdates(false),POLL_INTERVAL_MS);}
   function manualRefresh(){clearTimeout(pollTimer);checkForUpdates(true);}
+
+  // ── Force full reload ─────────────────────────────────────────────────────────
+  // Bypasses the checksum entirely and forces a from-scratch rebuild of
+  // allRoads/layers, regardless of whether Status/Residence counts (the only
+  // things the checksum tracks) have changed. Needed because a change to
+  // geometry, headers, or any other column can silently break rendering
+  // without ever moving the checksum — see ingestRows' isFirstLoad branch,
+  // which is the only path that does a full rebuild rather than a diff.
+  async function forceFullReload() {
+    if(isChecking) return;
+    isChecking=true;
+    clearTimeout(pollTimer);
+    setSyncState("checking","Force reloading…");
+    document.getElementById("loading-msg").textContent="Reloading road data…";
+    document.getElementById("loading").classList.remove("hidden");
+    try {
+      clearCache();
+      lastChecksum=null; // guarantees ingestRows takes the isFirstLoad=true path below
+      const cs=await fetchChecksum().catch(()=>null);
+      const text=await fetchCSVText(SHEET_CSV_URL);
+      const rows=await parseCSVRows(text);
+      if(!rows.length) throw new Error("No data rows found.");
+      ingestRows(rows,cs,new Date(),true);
+      saveToCache(rows,cs);
+    } catch(err) {
+      setSyncState("error","Force reload failed");
+      showError("Force reload failed: "+err.message);
+    } finally {
+      document.getElementById("loading").classList.add("hidden");
+      isChecking=false;
+      schedulePoll();
+    }
+  }
+
+  function handleSyncBarClick(e) {
+    if(e && e.shiftKey) forceFullReload();
+    else manualRefresh();
+  }
+
+  // Mobile: long-press on the sync bar triggers the same force reload, since
+  // shift-click has no touch equivalent. 600ms threshold avoids firing on a
+  // normal tap; a short haptic buzz (where supported) confirms it fired.
+  (function setupLongPress() {
+    const syncBar=document.getElementById("sync-bar");
+    if(!syncBar) return;
+    let pressTimer=null;
+    let firedByLongPress=false;
+
+    syncBar.addEventListener("touchstart",()=>{
+      firedByLongPress=false;
+      pressTimer=setTimeout(()=>{
+        firedByLongPress=true;
+        if(navigator.vibrate) navigator.vibrate(30);
+        forceFullReload();
+      },600);
+    },{passive:true});
+
+    ["touchend","touchmove","touchcancel"].forEach(evt=>{
+      syncBar.addEventListener(evt,()=>{ clearTimeout(pressTimer); });
+    });
+
+    // Prevent the touchend from also firing a synthetic click (which would
+    // otherwise trigger manualRefresh() right after forceFullReload()).
+    syncBar.addEventListener("touchend",(e)=>{
+      if(firedByLongPress) e.preventDefault();
+    });
+  })();
 
   // ── Recompute checksum locally after edits ────────────────────────────────────
   function recomputeAndSaveChecksum() {
@@ -1792,6 +1872,8 @@
   window.selectRoad = selectRoad;
   window.clearRoadSearch = clearRoadSearch;
   window.manualRefresh = manualRefresh;
+  window.forceFullReload = forceFullReload;
+  window.handleSyncBarClick = handleSyncBarClick;
   window.popupEditClicked = popupEditClicked;
   window.triggerSignIn = triggerSignIn;
   window.signOut = signOut;
