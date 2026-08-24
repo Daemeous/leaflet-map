@@ -46,6 +46,17 @@
   const INITIAL_VIEW = CFG.INITIAL_VIEW || [52.8, -2.12];
   const INITIAL_ZOOM = CFG.INITIAL_ZOOM || 12;
 
+  // When true: Google sign-in still runs as normal (so the app knows who's
+  // signed in), but the client-side "is this person on the Authorised list"
+  // gate is skipped — everyone who signs in is treated as authorised for UI
+  // purposes. Defaults to false so existing deployments don't need updating.
+  // NOTE: this only relaxes the frontend gate. The Apps Script backend still
+  // independently checks its own Authorised sheet on every update/partial/
+  // revert/history call — for a public demo, that sheet (or the script's
+  // isAuthorised() function) needs to accept demo visitors too, or their
+  // edits will be silently rejected server-side despite the UI allowing them.
+  const DISABLE_AUTH_CHECK = CFG.DISABLE_AUTH_CHECK === true;
+
   // ── Status definitions ────────────────────────────────────────────────────────
   const STATUSES = CFG.STATUSES || [
     { key:"complete",   sheetValue:"Complete",    label:"Complete",    cls:"opt-complete",   popupCls:"ps-complete",   colour:"#3ecf6e", weight:5 },
@@ -209,8 +220,9 @@
       const raw=localStorage.getItem(LS_AUTH); if(!raw) return;
       const s=JSON.parse(raw);
       if(!s.token||Date.now()>=s.expiry-30_000){localStorage.removeItem(LS_AUTH);return;}
-      authToken=s.token; authTokenType=s.tokenType||"idToken"; authEmail=s.email; authExpiry=s.expiry; authAuthorised=s.authorised;
-      if(authAuthorised) {
+      authToken=s.token; authTokenType=s.tokenType||"idToken"; authEmail=s.email; authExpiry=s.expiry;
+      authAuthorised = DISABLE_AUTH_CHECK ? true : s.authorised;
+      if(authAuthorised && !DISABLE_AUTH_CHECK) {
         setTimeout(()=>{ const el=document.getElementById("admin-panel-section"); if(el) el.style.display=""; }, 0);
       }
     } catch(e){localStorage.removeItem(LS_AUTH);}
@@ -1180,11 +1192,15 @@
       const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify(payload)})).json();
       if(!data.ok){if(editDiv)showEditMsg(editDiv,data.error||"Verification failed.","error");return;}
       authToken=idToken||accessToken; authTokenType=idToken?"idToken":"accessToken";
-      authEmail=data.email||emailHint; authExpiry=Date.now()+55*60*1000; authAuthorised=data.authorised===true;
+      authEmail=data.email||emailHint; authExpiry=Date.now()+55*60*1000;
+      authAuthorised = DISABLE_AUTH_CHECK ? true : (data.authorised===true);
       if(authAuthorised){
         if(cookieConsent()==="accepted") persistAuthSession();
         else if(!cookieConsent()) showCookieBanner();
-        document.getElementById("admin-panel-section").style.display="";
+        // Admin panel (editor history / revert) stays hidden in demo mode even
+        // though everyone counts as "authorised" — a public demo is not the
+        // place to expose a control that purges other people's edits.
+        if(!DISABLE_AUTH_CHECK) document.getElementById("admin-panel-section").style.display="";
       }
       if(!authAuthorised){if(editDiv)showEditMsg(editDiv,`${authEmail} is not authorised.`,"error");return;}
       if(pendingEdit){showStatusPicker(pendingEdit.editDiv,pendingEdit.rowRef);pendingEdit=null;}
