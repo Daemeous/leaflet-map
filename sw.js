@@ -60,7 +60,12 @@ function isTileRequest(url) {
   return /(^|\.)tile\.openstreetmap\.org$/.test(new URL(url).hostname);
 }
 function isLibRequest(url) {
-  return /^(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)$/
+  // daemeous.github.io is here too: core.js/styles.css are loaded cross-origin
+  // from the shared leaflet-map repo by every deployment except (if it
+  // exists) one hosted directly inside that repo — same opaque-response
+  // handling as the CDN libraries applies, and without it those two files,
+  // the actual application code, would never get cached for offline use.
+  return /^(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com|daemeous\.github\.io)$/
     .test(new URL(url).hostname);
 }
 function isAppDataRequest(url) {
