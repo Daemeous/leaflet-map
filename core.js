@@ -327,13 +327,66 @@
       localStorage.setItem(LS_MYPENDING,JSON.stringify(obj));
     } catch(e){}
   }
-  function setMyPending(rowIdx,field,value) { myPendingByRow.set(rowIdx,{field,value,ts:Date.now()}); saveMyPending(); }
+  // Every entry records WHOSE proposal it is, so it can be kept in local
+  // storage (surviving sign-out — the submitter should see it again if they
+  // sign back in) while only ever being RENDERED for that same person.
+  function setMyPending(rowIdx,field,value) { myPendingByRow.set(rowIdx,{field,value,email:(authEmail||"").toLowerCase(),ts:Date.now()}); saveMyPending(); }
   function clearMyPending(rowIdx) { if(myPendingByRow.delete(rowIdx)) saveMyPending(); }
+  function invalidateRowLayers(rowIdx) {
+    [...renderedLayers.keys()].filter(k=>k.startsWith(rowIdx+"_")).forEach(k=>{
+      const entry=renderedLayers.get(k);
+      if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
+    });
+  }
+  // A pending entry only counts as "mine" — and therefore only gets
+  // rendered — while signed in as the exact email that submitted it.
+  // Signed out, or signed in as someone else, it's inert: the map shows the
+  // real sheet value instead. Nothing is deleted by this, so it reappears
+  // correctly if the original submitter signs back in before it's resolved.
+  function myPendingFor(rowIdx) {
+    const p=myPendingByRow.get(rowIdx);
+    if(!p || !authEmail || p.email!==authEmail.toLowerCase()) return null;
+    return p;
+  }
   // What this browser should actually render for a road's status: its own
-  // unreviewed proposal if it has one, otherwise the real sheet value.
+  // unreviewed proposal if it has one AND it's currently signed in as the
+  // person who made it, otherwise the real sheet value.
   function effectiveStatus(road) {
-    const p=myPendingByRow.get(road._rowIdx);
+    const p=myPendingFor(road._rowIdx);
     return (p&&p.field==="status") ? p.value : road.Status;
+  }
+  // Called whenever who's signed in changes (sign-in, sign-out) — every
+  // pending row's visibility depends on that, not just its own data, so it
+  // needs to re-render even though nothing in myPendingByRow itself changed.
+  function refreshPendingVisibility() {
+    if(!myPendingByRow.size) return;
+    myPendingByRow.forEach((v,rowIdx)=>invalidateRowLayers(rowIdx));
+    renderLines(); updateStats(); updateCountBadges();
+  }
+  // A denial never touches Data, so the normal "checksum changed -> re-diff
+  // -> drop stale overrides" path in ingestRows never fires for it — that
+  // only catches approvals. This is the other half: ask the backend (no
+  // sign-in required, so it works even if this browser has since signed out
+  // or switched accounts) whether each locally-pending row+field is still
+  // actually pending, and drop the ones that have since been resolved. This
+  // is about the SERVER-side fate of the proposal, so unlike rendering it
+  // deliberately checks every stored entry regardless of who's signed in now.
+  async function reconcileMyPending() {
+    if(!myPendingByRow.size) return;
+    const rows=[...myPendingByRow.entries()].map(([rowIdx,p])=>({rowIndex:rowIdx,field:p.field}));
+    try{
+      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingStatus",rows})})).json();
+      if(!data.ok) return;
+      let changed=false;
+      rows.forEach(r=>{
+        const status=data.statuses[r.rowIndex+":"+r.field];
+        if(status!=="Pending" && myPendingByRow.delete(r.rowIndex)) {
+          changed=true;
+          invalidateRowLayers(r.rowIndex);
+        }
+      });
+      if(changed){saveMyPending();renderLines();updateStats();updateCountBadges();}
+    }catch(e){ /* offline or network error — leave local state, retry next poll */ }
   }
 
   // ── Sync UI ───────────────────────────────────────────────────────────────────
@@ -715,7 +768,7 @@
   // ── Popup HTML ────────────────────────────────────────────────────────────────
   function popupHtml(row) {
     const st=getStatus(effectiveStatus(row));
-    const isPending=myPendingByRow.has(row._rowIdx);
+    const isPending=!!myPendingFor(row._rowIdx);
     const resStr=fmtResidences(row);
     const resBadge=resStr?`<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`:"";
     return `
@@ -970,10 +1023,7 @@
         if(updated.Status!==existing.Status){existing.Status=updated.Status;rowChanged=true;clearMyPending(existing._rowIdx);}
         if((updated.partial_geometry||"-")!==(existing.partial_geometry||"-")){existing.partial_geometry=updated.partial_geometry;rowChanged=true;}
         if(rowChanged) {
-          [...renderedLayers.keys()].filter(k=>k.startsWith(existing._rowIdx+"_")).forEach(k=>{
-            const entry=renderedLayers.get(k);
-            if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
-          });
+          invalidateRowLayers(existing._rowIdx);
           changed=true;
         }
       });
@@ -1022,6 +1072,11 @@
       const cs=await fetchChecksum();
       if(!cs||cs!==lastChecksum) await loadFullSheet(cs||null);
       else{lastLoadTime=lastLoadTime||new Date();setSyncState("fresh","Up to date · "+formatTime(lastLoadTime));}
+      // Runs every cycle regardless of whether Data changed — a denial
+      // never moves the checksum, so this is the only thing that catches it.
+      // Not awaited: it's a secondary concern that shouldn't delay the
+      // sync-state UI, and it re-renders on its own once it resolves.
+      reconcileMyPending();
     } catch(err) {
       // Distinguish "no signal" from a genuine server/CORS error — common
       // out on a leafleting round, and not worth an alarming red dot or an
@@ -1317,6 +1372,7 @@
       authEmail=data.email||emailHint; authExpiry=Date.now()+55*60*1000;
       authAuthorised = DISABLE_AUTH_CHECK ? true : (data.authorised===true);
       authBanned = DISABLE_AUTH_CHECK ? false : (data.banned===true);
+      refreshPendingVisibility(); // any road showing someone else's pending preview reverts; MY own reappears
       if(authBanned){
         if(editDiv) showEditMsg(editDiv,"This Google account isn't permitted to submit changes.","error");
         return;
@@ -1337,7 +1393,7 @@
     const hasPartial=row&&(row.partial_geometry||"-")!=="-";
     const isInProgress=current==="inprogress";
     const hasGeom=row&&parseWKT(row.road_geometry).length>0;
-    const myPending=myPendingByRow.get(rowRef.rowIdx);
+    const myPending=myPendingFor(rowRef.rowIdx);
     const pendingNote=(!authAuthorised&&myPending&&myPending.field==="status")
       ? `<div class="popup-auth-msg" style="color:var(--yellow);">⏳ Your suggested change to "${escHtml(getStatus(myPending.value).label)}" is awaiting review.</div>`
       : "";
@@ -1381,10 +1437,7 @@
       const row=allRoads.find(r=>r._rowIdx===rowIdx);
       if(row){
         row.Status=sheetValue;
-        [...renderedLayers.keys()].filter(k=>k.startsWith(rowIdx+"_")).forEach(k=>{
-          const entry=renderedLayers.get(k);
-          if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
-        });
+        invalidateRowLayers(rowIdx);
         renderLines(); updateStats(); updateCountBadges();
         recomputeAndSaveChecksum();
       }
@@ -1406,10 +1459,7 @@
       const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"propose",field:"status",rowIndex:rowIdx,newStatus:sheetValue,...tp})})).json();
       if(!data.ok){showEditMsg(editDiv,data.error||"Submit failed.","error");return;}
       setMyPending(rowIdx,"status",sheetValue);
-      [...renderedLayers.keys()].filter(k=>k.startsWith(rowIdx+"_")).forEach(k=>{
-        const entry=renderedLayers.get(k);
-        if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
-      });
+      invalidateRowLayers(rowIdx);
       renderLines(); updateStats(); updateCountBadges();
       showEditMsg(editDiv,`Suggested "${getStatus(sheetValue).label}" — awaiting review`,"success");
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
@@ -1422,6 +1472,7 @@
     if(typeof google!=="undefined"&&google.accounts) google.accounts.id.disableAutoSelect();
     document.querySelectorAll(".popup-edit-area").forEach(el=>el.style.display="none");
     document.getElementById("admin-panel-section").style.display="none";
+    refreshPendingVisibility(); // any road showing MY pending preview reverts to its real status
   }
 
   // ── Admin panel ───────────────────────────────────────────────────────────────
@@ -1871,9 +1922,19 @@
       .then(r=>r.json())
       .then(data=>{
         if(!data.ok){showError(data.error||"Review failed.");return;}
-        // An approval changes Data — force the next poll to pick it up
-        // immediately rather than waiting for the checksum to naturally differ.
-        if(decision==="approve") { lastChecksum=null; checkForUpdates(false); }
+        if(decision==="approve") {
+          // An approval changes Data — force the next poll to pick it up
+          // immediately rather than waiting for the checksum to naturally
+          // differ. This also runs reconcileMyPending() as part of its
+          // normal cycle, covering this browser if it was also the submitter.
+          lastChecksum=null; checkForUpdates(false);
+        } else {
+          // Deny never changes Data, so nothing above would catch it —
+          // reconcile directly so a same-browser submitter/reviewer (e.g.
+          // while testing) sees their preview clear immediately rather than
+          // waiting for the next scheduled poll.
+          reconcileMyPending();
+        }
         openPendingPanel();
       })
       .catch(e=>showError("Network error: "+e.message));
