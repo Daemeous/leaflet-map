@@ -1933,12 +1933,22 @@
             const row=allRoads.find(r=>r._rowIdx===data.rowIndex);
             if(row) { row.Status=data.appliedValue; invalidateRowLayers(data.rowIndex); renderLines(); updateStats(); updateCountBadges(); }
           }
-          // Still force a full resync — this is what everyone ELSE's browser
-          // is waiting on regardless (bound by the separate, uncontrollable
-          // publish-to-web cache lag on Data/Checksum), and it also runs
-          // reconcileMyPending() as part of its normal cycle, covering this
-          // browser if it happened to be the submitter as well.
-          lastChecksum=null; checkForUpdates(false);
+          // NOT lastChecksum=null + checkForUpdates: that forces an
+          // immediate reload from the published CSV, which is on its own
+          // separate publish-to-web lag and — because a null lastChecksum
+          // makes loadFullSheet treat it as a first load — a still-stale
+          // fetch would completely rebuild allRoads from scratch, silently
+          // overwriting the confirmed patch just applied above. Instead,
+          // recompute what the checksum SHOULD become from allRoads as it
+          // now stands (same thing a direct edit already does) and save
+          // that as lastChecksum — so the next scheduled poll only reloads
+          // once the CSV has genuinely caught up, never before.
+          recomputeAndSaveChecksum();
+          // Covers the reviewer-was-also-the-submitter case (same browser
+          // proposed and then approved its own suggestion): clears their
+          // local pending badge/override now that it's genuinely resolved,
+          // rather than leaving it displayed via the pending override.
+          reconcileMyPending();
         } else {
           // Deny never changes Data, so nothing above would catch it —
           // reconcile directly so a same-browser submitter/reviewer (e.g.
