@@ -43,6 +43,7 @@
   const LS_TIME     = `leafmap_time_${LS_SUFFIX}`;
   const LS_AUTH     = `leafmap_auth_v1_${LS_SUFFIX}`;
   const LS_COOKIE   = `leafmap_cookie_consent_${LS_SUFFIX}`;
+  const LS_MYPENDING = `leafmap_mypending_v1_${LS_SUFFIX}`;
   const INITIAL_VIEW = CFG.INITIAL_VIEW || [52.8, -2.12];
   const INITIAL_ZOOM = CFG.INITIAL_ZOOM || 12;
 
@@ -79,6 +80,69 @@
   function buildStatsTop() {
     const colours = ["green","yellow","blue","red","purple"];
     return STATUSES.map((s,i)=>`<div class="stat"><div class="stat-num ${colours[i % colours.length]}" id="stat-${s.key}">0</div><div class="stat-label">${escHtml(s.label)}</div></div>`).join("");
+  }
+
+  // ── PWA: manifest, iOS meta tags, service worker ────────────────────────────
+  // Injected here rather than living as markup in each deployment's
+  // index.html, so a core.js update is the only thing every deployment
+  // needs to pick up for this. sw.js still has to be copied alongside
+  // index.html per deployment — a service worker's script must be
+  // same-origin, there's no way to register one from a shared/cross-origin
+  // URL — but nothing about <head> markup or registration needs touching
+  // per site. Icons are inlined as data URIs for the same reason: no
+  // separate icons/ folder to copy into every deployment either.
+  const PWA_ICON_192 = "iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADUklEQVR42u3dwW3jQBBEUWZg+OSwnJnT9VFKQSB7yOmuR+AnINabkQGv9/j6/nlJqR0+BAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABMK8zj88NgIihgwGAsUMBgNHDAIDRwwCA4YMAgOGDAIDhgwBA4+H//v1fDgQAWgy/YuxPoQDA8Lce/F0gADD+NqNfhQEAw285fBAAKB9/x+FXQgAgdPwThl8FAYCg8U8cfgUEAAwfhIEQDuPPHD8EAwEY/n0QADB+CAAwfggAaDN+A18DAQDjhwCAfQEY83oEABg/BAAYPwQAGD8EABg/BAA8AMBI90AAgNPfLQCA8UMAgK8+vgoBYPwQAAAAAAAYPwQAlAAwvj4IAHD6uwUAcPq7BQBw+rsFAHD6uwUAcPq7BQBw+rsFAHD6uwUAMH63AAAAAJAIwPghAAAAAAAAAIAwAMYPAQAAAAAAAAAAAAAAABh/BoJ4AE5/twAAAAAAAAAAAAAAAAAYvx+EAQAAgOkAfP0B4GkEAAgAAAQAAAIAAAEAgAAAQAAAIAAAEAAACAAABAAAAgAAAeC3QeW3QQEQAL4Gyb8IA0AAACAAABAAfhCWvwznFjB+fxsUAAAAAAAAAAAAAAAIjN//EQYAAAAAAAAAEBg/AAAAAMDrk8e4+o8fALeA0x8At4DTHwC3gNMfALeA0x8At4DTHwC3gNMfALeA0x8At4DTPx4ABMYPAAAAJAOAwPgB+PAxyr3GDwAExg+Ar0K++gDgFnD6AwCB8QMAgfEDAIHxAwCB8QNwBwAI1o4fAAiMH4AeCECoG3738Y8BAIHxxwOAwPjjAZxBkA7hzDNpL+MAQGD88QBAMHwALiCYCuHsM3kf4wFcQTAFwpVn+jYiAFxF0BXC1SdhFzEAkiAYPgBLEeyIoepJ20IkgGoIT4CoflI3EA1gFYRqFCuf9HcPwE0Qdnu8bwAiIXi/AERC8D4BiITg/QEQh8F7AiAOg/cBQAwKnzMAETB8bgBIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAEgASABIAAgAH4IAkACQAJAAkACQAJAAkACQAJBm9QZjxVBqEAz9WgAAAABJRU5ErkJggg==";
+  const PWA_ICON_512 = "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAM2UlEQVR42u3dwVEjQRBFQXlAcMIsPMNdjmDDXNRd9bIj0gE2dv6blth9fXx+/QEALS8/BAAQAACAAAAABAAAIAAAAAEAAAgAAEAAAAACAAAQAACAAAAABAAAIAAAAAEAAAgAAEAAAAACAAAQAAAgAAAAAQAACAAAQAAAAAIAABAAAIAAAAAEAAAgAAAAAQAACAAAQAAAAAIAABAAAIAAAAAEAAAgAABAAAAAAgAAEAAAgAAAAAQAACAAAAABAAAIAABAAAAAAgAAEAAAgAAAAAQAACAAAAABAAAIAABAAACAAAAABAAAIAAAAAEAAAgAAEAAAAACAAAQAACAAAAABAAAIAAAAAEAAAgAAEAAAAACAAAQAACAAAAAAeAHAQACAAAQAACAAAAABAAAIAAAAAEAAAgAAEAAAAACAAAQAACAAAAABADw0JPj5wUCABg85O8+/nxAAABLR14cgAAADL0wAAEAGHtRAAIADL4jCEAAgMF3BAEIADD4jiAAAQBG3xEDIADA6DtiAAQAGH1HDIAAAKPviAEQAGD4HSEAAgCMviMGQACA4XeEAAgADL/jCAEQABh9xxEDCAAw/I4jBBAAYPgdRwggAMDwO44QQACA4XccIYAAAMN/+Hz//L6NIwQQAGD8l427SBABCAAw/IZeGAgBBAAYfmMvCoQAAgAMv8EXBEIAAQDG3+ALAhGAAIDk8BtrMSAEEAAQGX+jLAZEAAIAIsNvfMWAEEAAQGT8jawYEAEIAIgMvzEVA0IAAQCh8TecQkAEIADA8CMEhAACALaNv1EUAyIAAQCh8TeATAgBzxEEAIbf8CMEQABg/A0/tRDwfEEAYPwNP9EQ8JxBAGD8DT/REPC8QQBg+A0/QgAEAMbfSCECQAAQGn/DRDkEPI8QAOTG3xAhBEQAAgDjDyIABABbx9/gIAREAAIA4w8iQAQgADD8IASEAAIA4w8iAAQAs8bfgCAERAACAOMPIkAEIAAw/iACRAACgBXjbyAQAiIAAYDxBxEgAhAAGH8QASIAAcCK8TcAcDYEPP8EgB+EADD+EIwAzz8B4Adh/I0/iAAEAMbf+IMIQABg/I0/iAAEAMbf+IMIQABg/A0/LAoBz0kBgPE3/iACEAAYf+MPIgABgAAw/rA6Ajw3BQDG3/iDCEAAYPyNP4gABADG3/iDCEAAYPwBEYAAIBAAHsLQiADPVQGA8Tf+IAIQALj6B3wUgADA+AMiAAGAq3/ARwEIAIw/IAIQABh/QAQgALg6ADxUQQQIAAGA8QdEgAgQALj6B3wUgADA2z/gFgABgPEHRAACAOMPiAAEAAIAEAAIAIw/IAIQABh/QAQgAASA8QcGRIDntQDA2z/gFgABgLd/wC0AAgDjD4gABAACABAACACMPyACEADG3/gDIgABIAAEACAAEADG3/gDIgABIACMP3BZBHiuCwC8/QNuARAAePsH3AIgAPD2D7gFQAAIAOMPuAVAABh/4w+IAASAABAAgABAABh/4w+IAASAABAAgABAAGQDwEMMuDECPPcFAN7+AbcACAABYPwBtwAIAOMvAAC3AAgAAWD8AbcACADjLwAAtwAIAAFg/AG3AAgAAQAgABAAxh9ABCAABACAABAA+PIfgC8DCgC8/QO4BRAACAAAASAAMP6ACBABAgABAAgAASAAOBAAHkbAlgiwEwLA+AsAwC0AAkAACABAACAABIDxB3wMgADw9g/gFgABIAAABAACwPU/gI8BEADe/gHcAiAABACAABAAuP4H8DGAAEAAAAgAAYDrfwAfAwgAvP0DuAUQAAgAQAAIAAGAAAAEgAAQAMbf+AMiQAQIAAEgAAABIAAEgAAQAIAAEAACQAAIAEAACAABYPyNPyACEAACAEAAIAAEAIAAQAAIAAABgABYEwAeKkA5AuyKAPD2D+AWAAEgAAAEAAJAAAAIAASAAAAQAAgAXwAE8EVABIAAABAAAgDX/wA+BhAACAAAASAAEAAAAkAAIAAABIAAwBcAAXwRUAAIAAEAIAAEgAAQAIAAEAACwPgLAEAAiAABIAAEACAABIAAEAACABAAAkAACAAPEEAACAABIAAABIC9EQACAEAAIAD8CiCAXwVEAAgAAAGAABAAAAIAASAAAASAAEAAAAgAAYAAABAAAgABACAABAACAEAACAD8I0AA/jEgASAABACAABAAAkAAAAJAAAgAASAAAAEgAASAABAAgAAQAAJAAAgAQAAIAAEgADw4AAEgAASAAAAQAAJAAAgAAAGAABAAAAIAASAAAAQAAsD/BQDg/wJAAAgAAAEgAPwQBACAABAACAAAASAAEAAAAkAAIAAABIAAQAAACAAB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";
+  const PWA_APPLE_ICON = "iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAADAklEQVR42u3d0U3EMBBF0e0A8UVZdEa7fILogMROMvPmWLoN2EcjZ1ebfb29f/xIKb1sgoCWgJaAloAW0BLQEtAS0BLQAloCWgJaAloCWkBLQEtAS0BLQAtoCWgJaAloCWgBLQEtAS0BXbP/LPsEdCuwq8s+A90aMOBAxyOGG+hYxHADHQ0ZbKAjIYMN9O3IPr++wQa6PuQ/qLsDG+jbIF8B+C7gQMP8GOKrcAM9FHIlxFfgBnoI5g6Qd8EGOhhzR8g7YAMNMthA18OcCHkVNtAwQw30c5gnQV6BDTTMUAMNM9RAH8IM8DpsoGGGGmiYoQYa5htRAw0z1EDDDHU4aJihBlpAw6wE1C+YlYS6LWjonkcNtOlsSgMNsyndGDTMUAMtoCuChhlqoAV0RdAwQw20gK4IGmaogRbQHUFD1Av1eNCmsykNtIDuCBoe145WoE1nUxpoAd0RNDSuHUALaNcNJV07gBbQrhuqeu0AWkADLaCBBhpoAQ20gPaRnTI+ugNaQAMtoIEGeiJoSDwYmtAyoYEW0EALaKCB9k2hPBACLaCBFtBAC2iggQZaQPvVt/zqG2gB7doBtDcnAQ20t4/KdQNoAe3aIW/wN6VhBhpooP1PoVw3/JOsxkxnoAU01DBXxQy0gIYa5qqYgRbQUMNcFTPQAhpqmKtibgsa6hqYgTalTWegoTadA0BDDXMcaKhhBlpAQ60EzG1AQw1zHGioYR4JGur9mIGGGmagoYZ5KOgjqME+B7kj5tagoYY5DjTUMMeBPop6Guyjq7uFCNBQwxwH+gzqVNhnVoqBKNDTYU+GHA36LOqusM+uxHOPBb2CugvslZV65tGgd8Cuhnt1pZ/1CNA7UD+Je9eacM5jQO+GfSXw3WvS+Y4DfRXs/8C/e00817Ggn4INMtBggwz0JNjODej2uJ0P0O1xOwegWwO3z0C3Am+fgJaAFtAS0BLQEtAS0AJaAloCWgJaAlpAS0BLQEtAS0ALaAloCWgJaAloAS0BLQEtAS2gJaClev0CJHNfV+3/t+EAAAAASUVORK5CYII=";
+
+  function injectPwaHead() {
+    // Manifest member URLs resolve relative to the manifest's OWN location —
+    // fine for a static manifest.json sitting next to index.html, but this
+    // one is served from a blob: URL (see below), which has no meaningful
+    // directory to resolve "./" against. Made absolute here instead, using
+    // the page's actual location, so it's correct regardless of that.
+    const baseUrl = new URL("./", document.location.href).href;
+    const manifest = {
+      name: CFG.TITLE || "Leafleting Map",
+      short_name: (CFG.TITLE || "Leafleting Map").slice(0, 24),
+      description: CFG.SUBTITLE || "Track leafleting progress by road and ward.",
+      start_url: baseUrl,
+      scope: baseUrl,
+      display: "standalone",
+      background_color: "#0f1117",
+      theme_color: "#0f1117",
+      icons: [
+        { src: `data:image/png;base64,${PWA_ICON_192}`, sizes: "192x192", type: "image/png" },
+        { src: `data:image/png;base64,${PWA_ICON_512}`, sizes: "512x512", type: "image/png" }
+      ]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+    const manifestLink = document.createElement("link");
+    manifestLink.rel = "manifest";
+    manifestLink.href = URL.createObjectURL(blob);
+    document.head.appendChild(manifestLink);
+
+    const themeColor = document.createElement("meta");
+    themeColor.name = "theme-color"; themeColor.content = "#0f1117";
+    document.head.appendChild(themeColor);
+
+    const appleIcon = document.createElement("link");
+    appleIcon.rel = "apple-touch-icon";
+    appleIcon.href = `data:image/png;base64,${PWA_APPLE_ICON}`;
+    document.head.appendChild(appleIcon);
+
+    // iOS has no install-prompt API — these are what make "Add to Home
+    // Screen" behave like an installed app (standalone chrome, correct
+    // title/icon) instead of just bookmarking the page.
+    [["apple-mobile-web-app-capable","yes"],
+     ["apple-mobile-web-app-status-bar-style","black-translucent"],
+     ["apple-mobile-web-app-title", CFG.TITLE || "Leafleting"]].forEach(([name,content])=>{
+      const m=document.createElement("meta"); m.name=name; m.content=content; document.head.appendChild(m);
+    });
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(()=>{}); });
+    }
   }
 
   function injectAppShell() {
@@ -126,6 +190,7 @@
         <div class="ward-list" id="ward-list"></div>
       </div>
       <div class="filter-section" style="margin-top:auto;display:none;" id="admin-panel-section">
+        <button class="ward-all-btn" id="pending-panel-link" onclick="openPendingPanel()" style="border-style:solid;border-color:var(--yellow);color:var(--yellow);margin-bottom:8px;">⏳ Pending changes<span class="toggle-count" id="pending-count" style="margin-left:6px;"></span></button>
         <button class="ward-all-btn" id="admin-panel-link" onclick="openAdminPanel()" style="border-color:var(--red);color:var(--red);">⚠ Editor history / revert</button>
       </div>
     </div>
@@ -151,6 +216,7 @@
   }
 
   injectAppShell();
+  injectPwaHead();
 
    // ── Prevent sidebar/toggle taps reaching the map (fixes mobile stuck-closed bug) ──
    L.DomEvent.disableClickPropagation(document.getElementById("sidebar"));
@@ -183,8 +249,14 @@
   let authEmail      = null;
   let authExpiry     = 0;
   let authAuthorised = false;
+  let authBanned     = false;
   let renderedLayers = new Map();
   let partialLayers  = new Map();
+  // rowIdx -> {field, value, ts} — THIS browser's own not-yet-reviewed
+  // proposals, so a suggested change previews live for the person who made
+  // it (colour on the map, badge in the popup) without touching the shared
+  // Data sheet or being visible to anyone else until an editor approves it.
+  let myPendingByRow = new Map();
 
   // ── Drawing state ─────────────────────────────────────────────────────────────
   // drawStart / drawEnd are now { segIdx: number, t: number, latlng: [lat,lon] }
@@ -210,9 +282,12 @@
   function showCookiePolicy() { alert("Cookie / local storage policy\n\nWe store a small token remembering your Google sign-in for up to 55 minutes, and a local cache of road data for instant loads. No personal data is shared with third parties."); }
 
   // ── Auth persistence ──────────────────────────────────────────────────────────
+  // Persists for anyone verified-and-not-banned, not just authorised editors
+  // — a signed-in proposer shouldn't have to sign in again on every reload
+  // just to see their own pending-review badges.
   function persistAuthSession() {
-    if(cookieConsent()!=="accepted"||!authToken||!authEmail||!authAuthorised) return;
-    try { localStorage.setItem(LS_AUTH,JSON.stringify({token:authToken,tokenType:authTokenType,email:authEmail,expiry:authExpiry,authorised:authAuthorised})); } catch(e){}
+    if(cookieConsent()!=="accepted"||!authToken||!authEmail||authBanned) return;
+    try { localStorage.setItem(LS_AUTH,JSON.stringify({token:authToken,tokenType:authTokenType,email:authEmail,expiry:authExpiry,authorised:authAuthorised,banned:authBanned})); } catch(e){}
   }
   function restoreAuthSession() {
     if(cookieConsent()!=="accepted") return;
@@ -222,10 +297,43 @@
       if(!s.token||Date.now()>=s.expiry-30_000){localStorage.removeItem(LS_AUTH);return;}
       authToken=s.token; authTokenType=s.tokenType||"idToken"; authEmail=s.email; authExpiry=s.expiry;
       authAuthorised = DISABLE_AUTH_CHECK ? true : s.authorised;
+      authBanned = DISABLE_AUTH_CHECK ? false : (s.banned===true);
       if(authAuthorised && !DISABLE_AUTH_CHECK) {
-        setTimeout(()=>{ const el=document.getElementById("admin-panel-section"); if(el) el.style.display=""; }, 0);
+        setTimeout(()=>{ const el=document.getElementById("admin-panel-section"); if(el) el.style.display=""; refreshPendingCount(); }, 0);
       }
     } catch(e){localStorage.removeItem(LS_AUTH);}
+  }
+
+  // ── My pending proposals (local-only optimistic preview) ────────────────────
+  const MY_PENDING_MAX_AGE_MS = 30*24*60*60*1000; // 30 days
+  function loadMyPending() {
+    try {
+      const raw=localStorage.getItem(LS_MYPENDING); if(!raw) return;
+      const obj=JSON.parse(raw);
+      myPendingByRow=new Map(Object.entries(obj).map(([k,v])=>[parseInt(k,10),v]));
+      // A denied proposal never gets communicated back to the submitter (no
+      // push mechanism here) — an approved one self-clears via ingestRows
+      // once the real Status catches up, but a denial would otherwise leave
+      // this browser showing a stale "pending" preview forever. Age it out.
+      let pruned=false;
+      const cutoff=Date.now()-MY_PENDING_MAX_AGE_MS;
+      myPendingByRow.forEach((v,k)=>{ if((v.ts||0)<cutoff){myPendingByRow.delete(k);pruned=true;} });
+      if(pruned) saveMyPending();
+    } catch(e){}
+  }
+  function saveMyPending() {
+    try {
+      const obj={}; myPendingByRow.forEach((v,k)=>{obj[k]=v;});
+      localStorage.setItem(LS_MYPENDING,JSON.stringify(obj));
+    } catch(e){}
+  }
+  function setMyPending(rowIdx,field,value) { myPendingByRow.set(rowIdx,{field,value,ts:Date.now()}); saveMyPending(); }
+  function clearMyPending(rowIdx) { if(myPendingByRow.delete(rowIdx)) saveMyPending(); }
+  // What this browser should actually render for a road's status: its own
+  // unreviewed proposal if it has one, otherwise the real sheet value.
+  function effectiveStatus(road) {
+    const p=myPendingByRow.get(road._rowIdx);
+    return (p&&p.field==="status") ? p.value : road.Status;
   }
 
   // ── Sync UI ───────────────────────────────────────────────────────────────────
@@ -606,7 +714,8 @@
 
   // ── Popup HTML ────────────────────────────────────────────────────────────────
   function popupHtml(row) {
-    const st=getStatus(row.Status);
+    const st=getStatus(effectiveStatus(row));
+    const isPending=myPendingByRow.has(row._rowIdx);
     const resStr=fmtResidences(row);
     const resBadge=resStr?`<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`:"";
     return `
@@ -614,7 +723,7 @@
       <div class="popup-ward">${escHtml(row.Ward)}</div>
       <div class="popup-meta">
         <button class="popup-status-btn" data-row-idx="${row._rowIdx}" title="Click to change status">
-          <span class="popup-status ${st.popupCls}">${escHtml(st.label)}</span>
+          <span class="popup-status ${st.popupCls}">${escHtml(st.label)}${isPending?" ⏳":""}</span>
         </button>
         ${resBadge}
       </div>
@@ -633,13 +742,14 @@
   function segmentKey(rowIdx,segIdx) { return `${rowIdx}_${segIdx}`; }
 
   function desiredLayerSpec(road) {
-    const sk=statusKey(road.Status);
+    const eff=effectiveStatus(road);
+    const sk=statusKey(eff);
     const ward=(road.Ward||"").trim();
     if(!activeStatus.has(sk)||!activeWards.has(ward)) return null;
     const hasSel=!!selectedRoadName;
     const isSel=hasSel&&(road.Street||"").trim().toLowerCase()===selectedRoadName.toLowerCase();
     const opac=hasSel&&!isSel?fadeCurrent:0.85;
-    return {colour:colourFor(road.Status),weight:weightFor(road.Status),opac,isSel,sk,ward};
+    return {colour:colourFor(eff),weight:weightFor(eff),opac,isSel,sk,ward};
   }
 
   function specChanged(a,b) {
@@ -857,7 +967,7 @@
         const updated=newByIdx.get(existing._rowIdx);
         if(!updated) return;
         let rowChanged=false;
-        if(updated.Status!==existing.Status){existing.Status=updated.Status;rowChanged=true;}
+        if(updated.Status!==existing.Status){existing.Status=updated.Status;rowChanged=true;clearMyPending(existing._rowIdx);}
         if((updated.partial_geometry||"-")!==(existing.partial_geometry||"-")){existing.partial_geometry=updated.partial_geometry;rowChanged=true;}
         if(rowChanged) {
           [...renderedLayers.keys()].filter(k=>k.startsWith(existing._rowIdx+"_")).forEach(k=>{
@@ -913,12 +1023,21 @@
       if(!cs||cs!==lastChecksum) await loadFullSheet(cs||null);
       else{lastLoadTime=lastLoadTime||new Date();setSyncState("fresh","Up to date · "+formatTime(lastLoadTime));}
     } catch(err) {
-      setSyncState("error","Check failed · "+formatTime(lastLoadTime));
-      if(isManual) showError("Refresh failed: "+err.message);
+      // Distinguish "no signal" from a genuine server/CORS error — common
+      // out on a leafleting round, and not worth an alarming red dot or an
+      // error banner every 15 minutes while walking through a dead spot.
+      if(!navigator.onLine) setSyncState("stale","Offline · showing cached data");
+      else {
+        setSyncState("error","Check failed · "+formatTime(lastLoadTime));
+        if(isManual) showError("Refresh failed: "+err.message);
+      }
     } finally{isChecking=false;schedulePoll();}
   }
   function schedulePoll(){clearTimeout(pollTimer);pollTimer=setTimeout(()=>checkForUpdates(false),POLL_INTERVAL_MS);}
   function manualRefresh(){clearTimeout(pollTimer);checkForUpdates(true);}
+  // Reconnecting mid-round shouldn't require a manual tap to pick up any
+  // status changes made by other editors while signal was down.
+  window.addEventListener("online",()=>{ if(!isChecking) checkForUpdates(false); });
 
   // ── Force full reload ─────────────────────────────────────────────────────────
   // Bypasses the checksum entirely and forces a from-scratch rebuild of
@@ -1154,8 +1273,11 @@
     if(!editDiv) return;
     if(editDiv.style.display!=="none"){editDiv.style.display="none";return;}
     editDiv.style.display="block";
-    if(tokenIsValid()&&authAuthorised) showStatusPicker(editDiv,rowRef);
-    else if(tokenIsValid()) showEditMsg(editDiv,"Your account is not on the authorised list.","error");
+    // Anyone signed in and not banned can open the picker — showStatusPicker
+    // itself decides whether that's a direct save (authorised editors) or a
+    // suggestion that goes to the review queue (everyone else).
+    if(tokenIsValid()&&authBanned) showEditMsg(editDiv,"This Google account isn't permitted to submit changes.","error");
+    else if(tokenIsValid()) showStatusPicker(editDiv,rowRef);
     else{pendingEdit={editDiv,rowRef};showSignInPrompt(editDiv);}
   }
   function showSignInPrompt(editDiv) {
@@ -1194,15 +1316,17 @@
       authToken=idToken||accessToken; authTokenType=idToken?"idToken":"accessToken";
       authEmail=data.email||emailHint; authExpiry=Date.now()+55*60*1000;
       authAuthorised = DISABLE_AUTH_CHECK ? true : (data.authorised===true);
-      if(authAuthorised){
-        if(cookieConsent()==="accepted") persistAuthSession();
-        else if(!cookieConsent()) showCookieBanner();
-        // Admin panel (editor history / revert) stays hidden in demo mode even
-        // though everyone counts as "authorised" — a public demo is not the
-        // place to expose a control that purges other people's edits.
-        if(!DISABLE_AUTH_CHECK) document.getElementById("admin-panel-section").style.display="";
+      authBanned = DISABLE_AUTH_CHECK ? false : (data.banned===true);
+      if(authBanned){
+        if(editDiv) showEditMsg(editDiv,"This Google account isn't permitted to submit changes.","error");
+        return;
       }
-      if(!authAuthorised){if(editDiv)showEditMsg(editDiv,`${authEmail} is not authorised.`,"error");return;}
+      if(cookieConsent()==="accepted") persistAuthSession();
+      else if(!cookieConsent()) showCookieBanner();
+      // Admin panels (editor history / pending review) stay hidden in demo
+      // mode even though everyone counts as "authorised" — a public demo is
+      // not the place to expose controls that affect other people's edits.
+      if(authAuthorised && !DISABLE_AUTH_CHECK) { document.getElementById("admin-panel-section").style.display=""; refreshPendingCount(); }
       if(pendingEdit){showStatusPicker(pendingEdit.editDiv,pendingEdit.rowRef);pendingEdit=null;}
     }catch(e){if(editDiv)showEditMsg(editDiv,"Network error: "+e.message,"error");}
   }
@@ -1213,11 +1337,17 @@
     const hasPartial=row&&(row.partial_geometry||"-")!=="-";
     const isInProgress=current==="inprogress";
     const hasGeom=row&&parseWKT(row.road_geometry).length>0;
+    const myPending=myPendingByRow.get(rowRef.rowIdx);
+    const pendingNote=(!authAuthorised&&myPending&&myPending.field==="status")
+      ? `<div class="popup-auth-msg" style="color:var(--yellow);">⏳ Your suggested change to "${escHtml(getStatus(myPending.value).label)}" is awaiting review.</div>`
+      : "";
     editDiv.innerHTML=`
       <div class="popup-user-line">
         <span>✓ ${escHtml(authEmail)}</span>
         <button class="popup-signout-link" onclick="signOut()">↩ sign out</button>
       </div>
+      ${authAuthorised?"":`<div class="popup-auth-msg">Not an authorised editor — changes you pick here go to a reviewer instead of saving directly.</div>`}
+      ${pendingNote}
       <div class="popup-status-select">
         ${STATUSES.map(s=>`
           <button class="popup-status-option ${s.cls}${s.key===current?" current":""}"
@@ -1225,13 +1355,17 @@
             ${s.label}${s.key===current?" ✓":""}
           </button>`).join("")}
       </div>
-      ${isInProgress&&hasGeom?`
+      ${authAuthorised&&isInProgress&&hasGeom?`
       <button class="popup-partial-btn${hasPartial?" has-data":""}" onclick="openPartialEditor(${rowRef.rowIdx})">
         ✏ ${hasPartial?"Edit":"Add"} partial completion
       </button>`:""}
     `;
     editDiv.querySelectorAll(".popup-status-option:not(.current)").forEach(btn=>{
-      btn.addEventListener("click",function(){submitStatusChange(parseInt(this.dataset.row,10),this.dataset.sheetValue,this);});
+      btn.addEventListener("click",function(){
+        const rIdx=parseInt(this.dataset.row,10), sv=this.dataset.sheetValue;
+        if(authAuthorised) submitStatusChange(rIdx,sv,this);
+        else submitProposedStatus(rIdx,sv,this);
+      });
     });
   }
 
@@ -1259,8 +1393,31 @@
     }catch(e){showEditMsg(editDiv,"Network error: "+e.message,"error");}
   }
 
+  // For unauthorised-but-verified users: writes to the Pending sheet only —
+  // Data is untouched until an editor approves it. Rendered as a live local
+  // preview via myPendingByRow/effectiveStatus so the road shows the
+  // suggested colour to the person who suggested it, without affecting
+  // anyone else's view or the shared checksum-synced data.
+  async function submitProposedStatus(rowIdx,sheetValue,btn) {
+    const editDiv=btn.closest(".popup-edit-area");
+    editDiv.innerHTML=`<div class="popup-saving">Submitting…</div>`;
+    try{
+      const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"propose",field:"status",rowIndex:rowIdx,newStatus:sheetValue,...tp})})).json();
+      if(!data.ok){showEditMsg(editDiv,data.error||"Submit failed.","error");return;}
+      setMyPending(rowIdx,"status",sheetValue);
+      [...renderedLayers.keys()].filter(k=>k.startsWith(rowIdx+"_")).forEach(k=>{
+        const entry=renderedLayers.get(k);
+        if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
+      });
+      renderLines(); updateStats(); updateCountBadges();
+      showEditMsg(editDiv,`Suggested "${getStatus(sheetValue).label}" — awaiting review`,"success");
+      setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
+    }catch(e){showEditMsg(editDiv,"Network error: "+e.message,"error");}
+  }
+
   function signOut() {
-    authToken=null;authTokenType="idToken";authEmail=null;authExpiry=0;authAuthorised=false;
+    authToken=null;authTokenType="idToken";authEmail=null;authExpiry=0;authAuthorised=false;authBanned=false;
     localStorage.removeItem(LS_AUTH);
     if(typeof google!=="undefined"&&google.accounts) google.accounts.id.disableAutoSelect();
     document.querySelectorAll(".popup-edit-area").forEach(el=>el.style.display="none");
@@ -1294,23 +1451,23 @@
     } else if(state==="error") {
       inner = `
         <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);margin-bottom:12px;">⚠ ${escHtml(errorMsg)}</div>
-        <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>`;
+        <button class="popup-partial-action-btn" id="admin-close-btn">Close</button>`;
     } else if(state==="list") {
       const rows = editors.length
-        ? editors.map(e=>`
+        ? editors.map((e,i)=>`
             <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:5px;background:rgba(255,255,255,0.03);border:1px solid var(--border);margin-bottom:4px;">
               <div>
                 <div style="font-size:12px;color:var(--text);">${escHtml(e.editor)}</div>
                 <div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">${e.standingChanges} standing change${e.standingChanges!==1?"s":""}</div>
               </div>
-              <button class="popup-partial-action-btn danger" onclick="adminConfirmRevert('${escHtml(e.editor)}',${e.standingChanges})">Revert all</button>
+              <button class="popup-partial-action-btn danger" data-revert-idx="${i}">Revert all</button>
             </div>`).join("")
         : `<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px 0;">No editor history on record yet.</div>`;
       inner = `
         <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:10px;letter-spacing:0.08em;text-transform:uppercase;">Editor history</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Standing changes are edits still showing as the current value. Reverting erases that editor's entire standing history.</div>
         <div id="admin-editor-list" style="margin-bottom:12px;">${rows}</div>
-        <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>`;
+        <button class="popup-partial-action-btn" id="admin-close-btn">Close</button>`;
     } else if(state==="confirm") {
       const targetEmail = errorMsg;
       const count = editors;
@@ -1319,11 +1476,10 @@
         <div style="font-size:12px;color:var(--text);margin-bottom:4px;">You are about to revert <strong>${escHtml(targetEmail)}</strong>'s ${count} standing change${count!==1?"s":""} across all roads.</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Type their email address below to confirm. This action will itself be logged and can be reverted.</div>
         <input id="admin-confirm-input" type="text" placeholder="${escHtml(targetEmail)}"
-          style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:7px 10px;outline:none;margin-bottom:10px;"
-          oninput="document.getElementById('admin-confirm-btn').disabled=this.value.trim().toLowerCase()!=='${escHtml(targetEmail)}'">
+          style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:7px 10px;outline:none;margin-bottom:10px;">
         <div style="display:flex;gap:8px;">
-          <button class="popup-partial-action-btn danger" id="admin-confirm-btn" disabled onclick="adminExecuteRevert('${escHtml(targetEmail)}')">Revert all</button>
-          <button class="popup-partial-action-btn" onclick="openAdminPanel()">← Back</button>
+          <button class="popup-partial-action-btn danger" id="admin-confirm-btn" disabled>Revert all</button>
+          <button class="popup-partial-action-btn" id="admin-back-btn">← Back</button>
         </div>
         <div id="admin-confirm-status" style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:8px;"></div>`;
     } else if(state==="done") {
@@ -1331,8 +1487,8 @@
         <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);margin-bottom:12px;">✓ Revert complete</div>
         <div style="font-size:12px;color:var(--text);margin-bottom:12px;">${escHtml(errorMsg)}</div>
         <div style="display:flex;gap:8px;">
-          <button class="popup-partial-action-btn" onclick="openAdminPanel()">← Back to history</button>
-          <button class="popup-partial-action-btn" onclick="closeAdminModal()">Close</button>
+          <button class="popup-partial-action-btn" id="admin-back-btn">← Back to history</button>
+          <button class="popup-partial-action-btn" id="admin-close-btn">Close</button>
         </div>`;
     }
 
@@ -1340,6 +1496,33 @@
       <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;width:min(420px,90vw);max-height:80vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
         ${inner}
       </div>`;
+
+    // Wired up here (rather than inline onclick="...") so editor emails —
+    // which come from Google Sign-In and could in principle contain a quote
+    // character — can never break out of an HTML attribute into executable
+    // JS. escHtml() only escapes &<>", not ', which made the old inline
+    // onclick="fn('${email}')" pattern unsafe.
+    const closeBtn = overlay.querySelector("#admin-close-btn");
+    if(closeBtn) closeBtn.addEventListener("click", closeAdminModal);
+    const backBtn = overlay.querySelector("#admin-back-btn");
+    if(backBtn) backBtn.addEventListener("click", openAdminPanel);
+
+    if(state==="list") {
+      overlay.querySelectorAll("[data-revert-idx]").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+          const e = editors[parseInt(btn.dataset.revertIdx, 10)];
+          adminConfirmRevert(e.editor, e.standingChanges);
+        });
+      });
+    } else if(state==="confirm") {
+      const targetEmail = errorMsg;
+      const input = overlay.querySelector("#admin-confirm-input");
+      const confirmBtn = overlay.querySelector("#admin-confirm-btn");
+      input.addEventListener("input", ()=>{
+        confirmBtn.disabled = input.value.trim().toLowerCase() !== targetEmail;
+      });
+      confirmBtn.addEventListener("click", ()=>adminExecuteRevert(targetEmail));
+    }
   }
 
   // ── Nearest-ward lookup (point-to-nearest-geometry, not ward centroid) ───────
@@ -1581,6 +1764,133 @@
       });
   }
 
+  // ── Pending changes panel (review queue for unauthorised proposals) ────────────
+  function updatePendingCountBadge(n) {
+    const el=document.getElementById("pending-count");
+    if(el) el.textContent=n>0?String(n):"";
+  }
+  // Fetches just the count so the sidebar badge can show "there's stuff to
+  // review" without requiring the editor to open the panel first.
+  function refreshPendingCount() {
+    if(!tokenIsValid()||!authAuthorised||DISABLE_AUTH_CHECK) return;
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingList",...tp})})
+      .then(r=>r.json())
+      .then(data=>{ if(data.ok) updatePendingCountBadge(data.items.length); })
+      .catch(()=>{});
+  }
+
+  function openPendingPanel() {
+    if(!tokenIsValid()||!authAuthorised) {
+      showError("Sign in first to access pending changes.");
+      return;
+    }
+    renderPendingModal("loading");
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingList",...tp})})
+      .then(r=>r.json())
+      .then(data=>{
+        if(!data.ok){renderPendingModal("error",data.error||"Failed to load pending changes");return;}
+        updatePendingCountBadge(data.items.length);
+        renderPendingModal("list",null,data.items);
+      })
+      .catch(e=>renderPendingModal("error","Network error: "+e.message));
+  }
+
+  function renderPendingModal(state, errorMsg, items) {
+    const overlay = document.getElementById("admin-modal-overlay");
+    overlay.style.cssText = "display:flex;position:absolute;inset:0;z-index:3000;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);";
+
+    let inner = "";
+    if(state==="loading") {
+      inner = `<div class="spinner" style="margin:0 auto 12px;"></div><p style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);text-align:center;">Loading pending changes…</p>`;
+    } else if(state==="error") {
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);margin-bottom:12px;">⚠ ${escHtml(errorMsg)}</div>
+        <button class="popup-partial-action-btn" id="pending-close-btn">Close</button>`;
+    } else if(state==="list") {
+      const rows = items.length
+        ? items.map((it,i)=>{
+            const fieldLabel = it.field==="status" ? "Status" : "Partial completion";
+            const oldLabel = it.field==="status" ? escHtml(getStatus(it.oldValue).label) : escHtml(String(it.oldValue||"-"));
+            const newLabel = it.field==="status" ? escHtml(getStatus(it.proposedValue).label) : escHtml(String(it.proposedValue||"-"));
+            return `
+              <div style="padding:8px 10px;border-radius:5px;background:rgba(255,255,255,0.03);border:1px solid var(--border);margin-bottom:6px;">
+                <div style="font-size:12px;color:var(--text);font-weight:500;">${escHtml(it.street)}</div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">${escHtml(it.ward)} · ${fieldLabel}</div>
+                <div style="font-size:11px;color:var(--text);margin-bottom:4px;">${oldLabel} → <strong>${newLabel}</strong></div>
+                <div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:6px;">by ${escHtml(it.submitter)}</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="popup-partial-action-btn active" style="border-color:var(--darkgreen);color:#4ecb82;" data-approve-idx="${i}">✓ Approve</button>
+                  <button class="popup-partial-action-btn" data-deny-idx="${i}">✕ Deny</button>
+                  <button class="popup-partial-action-btn danger" data-ban-idx="${i}">⛔ Ban submitter</button>
+                </div>
+              </div>`;
+          }).join("")
+        : `<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px 0;">No pending changes to review.</div>`;
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:10px;letter-spacing:0.08em;text-transform:uppercase;">Pending changes</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5;">Suggestions from signed-in but unauthorised visitors. Approve applies the change and logs it under the submitter's name; deny discards it — Data is untouched either way until you approve.</div>
+        <div id="pending-item-list" style="margin-bottom:12px;max-height:50vh;overflow-y:auto;">${rows}</div>
+        <button class="popup-partial-action-btn" id="pending-close-btn">Close</button>`;
+    } else if(state==="done") {
+      inner = `
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--green);margin-bottom:12px;">✓ ${escHtml(errorMsg)}</div>
+        <div style="display:flex;gap:8px;">
+          <button class="popup-partial-action-btn" id="pending-back-btn">← Back to list</button>
+          <button class="popup-partial-action-btn" id="pending-close-btn">Close</button>
+        </div>`;
+    }
+
+    overlay.innerHTML = `
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;width:min(460px,90vw);max-height:80vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,0.6);">
+        ${inner}
+      </div>`;
+
+    const closeBtn = overlay.querySelector("#pending-close-btn");
+    if(closeBtn) closeBtn.addEventListener("click", closeAdminModal);
+    const backBtn = overlay.querySelector("#pending-back-btn");
+    if(backBtn) backBtn.addEventListener("click", openPendingPanel);
+
+    if(state==="list") {
+      overlay.querySelectorAll("[data-approve-idx]").forEach(btn=>{
+        btn.addEventListener("click",()=>reviewPendingItem(items[parseInt(btn.dataset.approveIdx,10)],"approve"));
+      });
+      overlay.querySelectorAll("[data-deny-idx]").forEach(btn=>{
+        btn.addEventListener("click",()=>reviewPendingItem(items[parseInt(btn.dataset.denyIdx,10)],"deny"));
+      });
+      overlay.querySelectorAll("[data-ban-idx]").forEach(btn=>{
+        btn.addEventListener("click",()=>banPendingSubmitter(items[parseInt(btn.dataset.banIdx,10)]));
+      });
+    }
+  }
+
+  function reviewPendingItem(item, decision) {
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingReview",pendingRow:item.pendingRow,decision,...tp})})
+      .then(r=>r.json())
+      .then(data=>{
+        if(!data.ok){showError(data.error||"Review failed.");return;}
+        // An approval changes Data — force the next poll to pick it up
+        // immediately rather than waiting for the checksum to naturally differ.
+        if(decision==="approve") { lastChecksum=null; checkForUpdates(false); }
+        openPendingPanel();
+      })
+      .catch(e=>showError("Network error: "+e.message));
+  }
+
+  function banPendingSubmitter(item) {
+    if(!confirm(`Ban ${item.submitter} from submitting further changes? Their other pending submissions will be denied too.`)) return;
+    const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
+    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"ban",targetEmail:item.submitter,...tp})})
+      .then(r=>r.json())
+      .then(data=>{
+        if(!data.ok){showError(data.error||"Ban failed.");return;}
+        openPendingPanel();
+      })
+      .catch(e=>showError("Network error: "+e.message));
+  }
+
   // ── Partial editor ────────────────────────────────────────────────────────────
   function openPartialEditor(rowIdx) {
     const row=allRoads.find(r=>r._rowIdx===rowIdx);
@@ -1672,7 +1982,7 @@
       placeHandles(geomData);
       updateDrawPreview(geomData);
       showDrawControls(geomData);
-      setDrawHint("Tap a handle to select it, then tap road to move · Save when done");
+      setDrawHint("Drag a handle to fine-tune, or tap one then tap the road · Save when done");
 
     } else if(drawState==="adjust") {
       if(drawActiveHandle) {
@@ -1684,9 +1994,44 @@
         drawActiveHandle=null;
         placeHandles(geomData);
         updateDrawPreview(geomData);
-        setDrawHint("Tap a handle to select it, then tap road to move · Save when done");
+        setDrawHint("Drag a handle to fine-tune, or tap one then tap the road · Save when done");
       }
     }
+  }
+
+  // Handles are draggable L.markers (divIcons) rather than circleMarkers —
+  // circleMarker/Path layers don't support Leaflet's draggable option at
+  // all, only L.Marker does. Dragging re-snaps to the road on every move so
+  // the handle can never end up off the line. The old tap-handle-then-tap-
+  // road flow still works too, for anyone who finds that easier on mobile.
+  function makeDrawHandle(geomData, snap, fillColour, which) {
+    const segPts = geomData.segs[snap.segIdx];
+    const segCL  = geomData.segCumLens[snap.segIdx];
+    const pt = interpolateAlongPts(segPts, segCL, snap.t);
+    const marker = L.marker(pt, {
+      icon: L.divIcon({
+        className: "draw-handle-icon",
+        html: `<div class="draw-handle-dot" style="background:${fillColour};"></div>`,
+        iconSize: [22, 22], iconAnchor: [11, 11]
+      }),
+      draggable: true, autoPan: true, zIndexOffset: 1000
+    });
+    marker.on("click", e=>{
+      L.DomEvent.stopPropagation(e);
+      drawActiveHandle=which;
+      setDrawHint(`Tap road to move ${which} point, or drag the handle`);
+    });
+    marker.on("drag", e=>{
+      const snapped = snapToNearestSegment(e.target.getLatLng(), geomData.segs);
+      marker.setLatLng(snapped.latlng);
+      if(which==="start") drawStart=snapped; else drawEnd=snapped;
+      updateDrawPreview(geomData);
+    });
+    marker.on("dragend", ()=>{
+      drawActiveHandle=null;
+      setDrawHint("Drag a handle to fine-tune, or tap one then tap the road · Save when done");
+    });
+    return marker;
   }
 
   function placeHandles(geomData) {
@@ -1694,20 +2039,12 @@
     if(drawHandleEnd  ){partialLayerGroup.removeLayer(drawHandleEnd);  drawHandleEnd=null;}
 
     if(drawStart) {
-      const segPts = geomData.segs[drawStart.segIdx];
-      const segCL  = geomData.segCumLens[drawStart.segIdx];
-      const pt = interpolateAlongPts(segPts, segCL, drawStart.t);
-      drawHandleStart=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:PARTIAL_COLOUR,fillOpacity:1,weight:2,interactive:true,zIndexOffset:1000});
+      drawHandleStart = makeDrawHandle(geomData, drawStart, PARTIAL_COLOUR, "start");
       drawHandleStart.addTo(partialLayerGroup);
-      drawHandleStart.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="start";setDrawHint("Tap road to move start point");});
     }
     if(drawEnd) {
-      const segPts = geomData.segs[drawEnd.segIdx];
-      const segCL  = geomData.segCumLens[drawEnd.segIdx];
-      const pt = interpolateAlongPts(segPts, segCL, drawEnd.t);
-      drawHandleEnd=L.circleMarker(pt,{radius:8,color:"#fff",fillColor:"#0a4a28",fillOpacity:1,weight:2,interactive:true,zIndexOffset:1000});
+      drawHandleEnd = makeDrawHandle(geomData, drawEnd, "#0a4a28", "end");
       drawHandleEnd.addTo(partialLayerGroup);
-      drawHandleEnd.on("click",e=>{L.DomEvent.stopPropagation(e);drawActiveHandle="end";setDrawHint("Tap road to move end point");});
     }
   }
 
@@ -1798,9 +2135,12 @@
       <div class="popup-partial-actions" style="margin-top:6px;">
         <button class="popup-partial-action-btn active" id="draw-btn-save" style="border-color:var(--darkgreen);color:#4ecb82;">✓ Save</button>
         <button class="popup-partial-action-btn" id="draw-btn-cancel">✕ Cancel</button>
-        ${hasExisting?`<button class="popup-partial-action-btn danger" id="draw-btn-clear">🗑 Clear</button>`:""}
       </div>
       <div class="popup-partial-status" id="draw-save-status"></div>
+      ${hasExisting?`
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <button class="popup-partial-action-btn danger" id="draw-btn-clear" style="width:100%;">🗑 Clear all sections for this road</button>
+      </div>`:""}
     `;
 
     const popup=L.popup({closeButton:false,closeOnClick:false,autoClose:false,className:""})
@@ -1827,8 +2167,29 @@
     });
     content.querySelector("#draw-btn-save").addEventListener("click",()=>savePartialGeom(geomData,content.querySelector("#draw-save-status")));
     content.querySelector("#draw-btn-cancel").addEventListener("click",()=>{exitDrawMode();map.closePopup();});
+    // Clearing wipes every saved section for this road, not just the one
+    // being drawn — moved off the Save/Cancel row and requires a second tap
+    // within 4s (the button relabels itself while armed) so a mis-tap aimed
+    // at Cancel can no longer destroy existing partial-completion data.
     const clearBtn=content.querySelector("#draw-btn-clear");
-    if(clearBtn) clearBtn.addEventListener("click",()=>clearPartialGeom(geomData,content.querySelector("#draw-save-status")));
+    if(clearBtn) {
+      const clearLabel=clearBtn.textContent;
+      let armed=false, armTimer=null;
+      const disarm=()=>{armed=false;clearBtn.textContent=clearLabel;clearBtn.classList.remove("armed");};
+      clearBtn.addEventListener("click",()=>{
+        if(!armed) {
+          armed=true;
+          clearBtn.textContent="Tap again to confirm clearing";
+          clearBtn.classList.add("armed");
+          clearTimeout(armTimer);
+          armTimer=setTimeout(disarm,4000);
+          return;
+        }
+        clearTimeout(armTimer);
+        disarm();
+        clearPartialGeom(geomData,content.querySelector("#draw-save-status"));
+      });
+    }
   }
 
   async function savePartialGeom(geomData, statusEl) {
@@ -1901,6 +2262,7 @@
   window.closeAdminModal = closeAdminModal;
   window.adminConfirmRevert = adminConfirmRevert;
   window.adminExecuteRevert = adminExecuteRevert;
+  window.openPendingPanel = openPendingPanel;
   window.locateAndFilterWard = locateAndFilterWard;
   window.toggleSidebar = toggleSidebar;
   window.toggleLiveTracking = toggleLiveTracking;
@@ -1908,6 +2270,7 @@
   // ── Boot ──────────────────────────────────────────────────────────────────────
   (async function boot() {
     restoreAuthSession();
+    loadMyPending();
     if(isMobile()) openSidebar();
     const cached=loadFromCache();
     if(cached&&cached.rows&&cached.rows.length){
