@@ -1923,10 +1923,21 @@
       .then(data=>{
         if(!data.ok){showError(data.error||"Review failed.");return;}
         if(decision==="approve") {
-          // An approval changes Data — force the next poll to pick it up
-          // immediately rather than waiting for the checksum to naturally
-          // differ. This also runs reconcileMyPending() as part of its
-          // normal cycle, covering this browser if it was also the submitter.
+          // The backend only ever returns ok:true for an approve once it has
+          // re-read the cell, in the same execution, and confirmed the write
+          // actually landed — so it's safe to trust data.appliedValue here
+          // without a second guess; an unconfirmed write comes back as
+          // ok:false instead (handled above) and is left retryable rather
+          // than silently marked reviewed.
+          if(data.field==="status") {
+            const row=allRoads.find(r=>r._rowIdx===data.rowIndex);
+            if(row) { row.Status=data.appliedValue; invalidateRowLayers(data.rowIndex); renderLines(); updateStats(); updateCountBadges(); }
+          }
+          // Still force a full resync — this is what everyone ELSE's browser
+          // is waiting on regardless (bound by the separate, uncontrollable
+          // publish-to-web cache lag on Data/Checksum), and it also runs
+          // reconcileMyPending() as part of its normal cycle, covering this
+          // browser if it happened to be the submitter as well.
           lastChecksum=null; checkForUpdates(false);
         } else {
           // Deny never changes Data, so nothing above would catch it —
