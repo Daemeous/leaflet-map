@@ -1,10 +1,22 @@
 /* ============================================================================
    sw.js — Offline support for the Leafleting Map app.
 
-   Caches the app shell (index.html/core.js/styles.css) and the third-party
-   libraries it loads (Leaflet/PapaParse/Turf/fonts) so the app can boot with
-   no signal — common when out walking a round. Also caches OSM map tiles as
-   they're viewed, so previously-visited areas stay visible offline.
+   Caches the app shell (index.html, core.js/styles.css from the shared
+   leaflet-map repo) and the third-party libraries it loads (Leaflet/
+   PapaParse/Turf/fonts) so the app can boot with no signal — common when
+   out walking a round. Also caches OSM map tiles as they're viewed, so
+   previously-visited areas stay visible offline.
+
+   core.js/styles.css/index.html are NEVER cache-first, even though they're
+   cached: they're the app's own actively-developed code, loaded from URLs
+   with no version number anywhere in them (no ?v= query string on any real
+   deployment), so a device that ever cache-first'd them would keep serving
+   that exact version forever, no matter how many times the real file
+   changes on the server. They always try the network first, bypassing the
+   browser's own HTTP cache too — cache is a fallback for offline only, not
+   a shortcut while online. The CDN libraries ARE safe to cache-first: their
+   version is baked into the URL path (e.g. /1.9.4/leaflet.min.js), so a
+   real change is always a different URL.
 
    Deliberately NEVER caches: the Google Sheets CSV endpoints, the Apps
    Script URL, or any Google auth endpoint. Road/status data and sign-in
@@ -13,27 +25,25 @@
    checksum, and this service worker must not interfere with that by
    serving a stale response underneath it.
 
-   Bump the CACHE_VERSION below whenever this file, index.html, core.js, or
-   styles.css changes, so old caches get cleared out on the next visit.
+   Bump the CACHE_VERSION below on any change to this file's own caching
+   STRATEGY (not needed for ordinary core.js/styles.css/index.html content
+   changes — those are covered by the network-first behavior above) so old
+   cache entries get cleared out on the next visit.
    ============================================================================ */
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const SHELL_CACHE = `leafmap-shell-${CACHE_VERSION}`;
 const LIB_CACHE   = `leafmap-libs-${CACHE_VERSION}`;
 const TILE_CACHE  = `leafmap-tiles-${CACHE_VERSION}`;
 const TILE_CACHE_MAX = 1000; // bounds on-disk growth from OSM tiles
 
-// core.js/styles.css are deliberately NOT listed here — index.html loads
-// them with a cache-busting "?v=N" query string that changes on every
-// deploy, so a hardcoded entry here would go stale immediately and never
-// match the real request anyway (cache lookups are exact-URL). They still
-// end up cached: the very first request for whatever version is current
-// falls through to the generic stale-while-revalidate handler below, same
-// as any other same-origin GET.
-// manifest.json isn't listed either — core.js generates it at runtime as a
-// blob: URL (see injectPwaHead()), there's no static file to precache.
-// (cache.addAll below fails ENTIRELY if any single URL in this list 404s —
-// keep it to things that are guaranteed to actually exist.)
+// core.js/styles.css aren't listed here — they're cross-origin (can't be
+// precached at install time the same way) and get cached on first fetch via
+// the network-first handler below regardless. manifest.json isn't listed
+// either — core.js generates it at runtime as a blob: URL (see
+// injectPwaHead()), there's no static file to precache. (cache.addAll below
+// fails ENTIRELY if any single URL in this list 404s — keep it to things
+// that are guaranteed to actually exist.)
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -59,14 +69,20 @@ self.addEventListener("activate", event => {
 function isTileRequest(url) {
   return /(^|\.)tile\.openstreetmap\.org$/.test(new URL(url).hostname);
 }
-function isLibRequest(url) {
-  // daemeous.github.io is here too: core.js/styles.css are loaded cross-origin
-  // from the shared leaflet-map repo by every deployment except (if it
-  // exists) one hosted directly inside that repo — same opaque-response
-  // handling as the CDN libraries applies, and without it those two files,
-  // the actual application code, would never get cached for offline use.
-  return /^(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com|daemeous\.github\.io)$/
+// Genuinely immutable: these CDN URLs bake the version into the path itself
+// (e.g. /1.9.4/leaflet.min.js) — a real update is a different URL, so
+// cache-first forever is correct and desirable here.
+function isCdnLibRequest(url) {
+  return /^(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)$/
     .test(new URL(url).hostname);
+}
+// The opposite: core.js/styles.css, loaded cross-origin from the shared
+// leaflet-map repo, at a URL that never changes even though the CONTENT
+// does — this is the app's own actively-developed code. Must never be
+// treated as cache-first (see the fetch handler below), or a device that
+// cached it once would keep serving that exact version forever.
+function isAppLibRequest(url) {
+  return new URL(url).hostname === "daemeous.github.io";
 }
 function isAppDataRequest(url) {
   // Sheets CSV, Apps Script, and Google auth — always network, never cache.
@@ -108,7 +124,7 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if (isLibRequest(url)) {
+  if (isCdnLibRequest(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(LIB_CACHE);
       const cached = await cache.match(request);
@@ -124,8 +140,31 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // App shell: stale-while-revalidate — serve the cached copy instantly,
-  // refresh the cache in the background so the next load picks up changes.
+  // core.js/styles.css and the app shell (index.html/"./") itself: always
+  // try the network FIRST, bypassing the browser's own HTTP cache too
+  // (cache: "no-store") — not just the Cache API — since GitHub Pages'
+  // ordinary cache headers are a second layer that could otherwise still
+  // serve something stale even after fixing the Cache API side. Only fall
+  // back to the last-cached copy when truly offline. This is what actually
+  // fixes "old version keeps appearing": there is no query string on the
+  // real deployments to bust a cache with, so freshness has to come from
+  // never trusting the cache while online in the first place.
+  if (isAppLibRequest(url) || request.mode === "navigate" || new URL(url).pathname.endsWith(".html")) {
+    event.respondWith((async () => {
+      const cache = await caches.open(SHELL_CACHE);
+      try {
+        const resp = await fetch(request, { cache: "no-store" });
+        if (resp.ok || resp.type === "opaque") cache.put(request, resp.clone());
+        return resp;
+      } catch (e) {
+        const cached = await cache.match(request);
+        return cached || Response.error();
+      }
+    })());
+    return;
+  }
+
+  // Anything else same-origin: stale-while-revalidate.
   event.respondWith((async () => {
     const cache = await caches.open(SHELL_CACHE);
     const cached = await cache.match(request);
