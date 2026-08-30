@@ -26,6 +26,8 @@ Related project — **[Pothole Watch](https://github.com/Daemeous/stafford-potho
 
 The tooling that builds each deployment's road data and creates/deploys its Google Sheet + Apps Script backend lives in **[leaflet-pipeline](https://github.com/Daemeous/leaflet-pipeline)**, not in these site repos — see that repo to add a new constituency or refresh an existing one.
 
+The event-day route-planning tool — **[route-planner](https://github.com/Daemeous/route-planner)** — reads [`deployments.json`](deployments.json) in this repo to populate its "pick your area" dropdown. **Add a new entry there whenever a new constituency deployment goes live**, so it shows up without anyone needing to paste a URL by hand.
+
 ---
 
 ## How it works
