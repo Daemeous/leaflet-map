@@ -78,11 +78,21 @@ Roads that run *along* a ward boundary are detected automatically (in the pipeli
 
 ---
 
-## Credits & libraries
+## License
 
-- **Leaflet.js** — [leafletjs.com](https://leafletjs.com) © Vladimir Agafonkin and contributors
-- **OpenStreetMap** — map tiles and road data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL)
-- **OS Boundary-Line** and **OS Open UPRN** — © Crown copyright and database right, Ordnance Survey (Open Government Licence)
-- **Papa Parse** — CSV parsing — [papaparse.com](https://www.papaparse.com)
-- **Turf.js** — geospatial analysis — [turfjs.org](https://turfjs.org)
+This project's own code (this frontend, and — in [leaflet-pipeline](https://github.com/Daemeous/leaflet-pipeline) — the data pipeline and Apps Script backends) is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**: free to use, share, and modify for any non-commercial purpose, with attribution. See [`LICENSE`](LICENSE) for the full text.
+
+That covers this project's own code only. The geographic data it displays comes from sources under their own separate licenses that explicitly permit commercial use (see Attributions below) — this project's non-commercial restriction doesn't, and legally can't, extend to that underlying data.
+
+## Attributions
+
+| Dependency | License | Notes |
+|---|---|---|
+| [Leaflet.js](https://leafletjs.com) | BSD-2-Clause | © Vladimir Agafonkin and contributors |
+| [OpenStreetMap](https://www.openstreetmap.org/copyright) | [ODbL](https://opendatacommons.org/licenses/odbl/) | Map tiles and road data © OpenStreetMap contributors. Permits commercial use; requires attribution and share-alike for derivative databases. |
+| OS Boundary-Line & OS Open UPRN | [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/) | © Crown copyright and database right, Ordnance Survey. Permits commercial use; requires attribution. |
+| [Papa Parse](https://www.papaparse.com) | MIT | CSV parsing |
+| [Turf.js](https://turfjs.org) | MIT | Geospatial analysis |
+| Google Identity Services | [Google Terms of Service](https://policies.google.com/terms) | Sign-in, loaded from Google's own servers at runtime |
+| [Overpass API](https://overpass-api.de) | [Usage policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html) | OSM data queries (used by leaflet-pipeline) |
 - **Google Identity Services** — authentication
