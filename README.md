@@ -52,15 +52,13 @@ Authorised users can sign in with Google and update road statuses directly from 
 Five of the seven live deployments (everything except this repo and the demo) have **no local copy** of `core.js`/`styles.css` at all — their `index.html` loads them straight from this repo's Pages URL:
 
 ```html
-<link rel="stylesheet" href="https://daemeous.github.io/leaflet-map/styles.css">
-<script src="https://daemeous.github.io/leaflet-map/core.js"></script>
+<link rel="stylesheet" href="https://daemeous.github.io/leaflet-map/styles.css?shared_v=1">
+<script src="https://daemeous.github.io/leaflet-map/core.js?shared_v=1"></script>
 ```
 
 That means:
-- A fix or feature pushed here reaches every thin deployment immediately, with no per-repo update needed.
-- It also means a bug pushed here breaks every thin deployment immediately — treat pushes to `core.js`/`styles.css` as a production release, not a per-constituency change.
-- `leaflet-map-demo` and this repo keep their own local copies (so the demo can diverge, e.g. `DISABLE_AUTH_CHECK`) — those need updating by hand when a fix here is worth carrying over.
-- The `?v=N` query string on the `<link>`/`<script>` tags is a cache-buster for the browser's HTTP cache — bump it in whichever `index.html` files load a changed file. (The service worker itself never cache-first's these files — see `sw.js`'s header comment — so this is a browser-cache nicety, not a correctness requirement.)
+- A fix or feature pushed here reaches every thin deployment (and `leaflet-map-demo`, which also uses this pattern — its own local `core.js`/`styles.css` copies had gone stale/404ing and were removed) — but **only once each consumer's `?shared_v=N` is bumped to match**. It also means a bug pushed here breaks every deployment at once — treat pushes to `core.js`/`styles.css` as a production release, not a per-constituency change.
+- **The `?shared_v=N` query string is load-bearing, not a nicety.** GitHub Pages' CDN caches these files for up to 10 minutes, and mobile browsers (Android Chrome in particular) have been observed holding onto a stale cross-origin copy well beyond that — the service worker's network-first/no-store fetch handling (see `sw.js`'s header comment) doesn't reliably defeat every caching layer in the chain for a cross-origin request. A changed query string forces every layer (CDN edge cache, browser HTTP cache, the SW's Cache Storage) to treat it as a different resource, which is the only fix confirmed to work reliably. **Whenever `core.js` or `styles.css` changes here, bump `?shared_v=N` in every consuming repo's `index.html`** (`south-hams`, `burton-uttoxeter`, `stone`, `barnsley`, `sthelens`, `leaflet-map-demo`) — this repo's own `?v=N` on its local `<link>`/`<script>` tags is a separate, same-origin version counter and doesn't need to match.
 
 ---
 
