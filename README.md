@@ -82,6 +82,8 @@ Roads that run *along* a ward boundary are detected automatically (in the pipeli
 
 This project's own code (this frontend, and — in [leaflet-pipeline](https://github.com/Daemeous/leaflet-pipeline) — the data pipeline and Apps Script backends) is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**: free to use, share, and modify for any non-commercial purpose, with attribution. See [`LICENSE`](LICENSE) for the full text.
 
+Copyright © Daniel Hodgkins.
+
 That covers this project's own code only. The geographic data it displays comes from sources under their own separate licenses that explicitly permit commercial use (see Attributions below) — this project's non-commercial restriction doesn't, and legally can't, extend to that underlying data.
 
 ## Attributions
@@ -95,4 +97,3 @@ That covers this project's own code only. The geographic data it displays comes 
 | [Turf.js](https://turfjs.org) | MIT | Geospatial analysis |
 | Google Identity Services | [Google Terms of Service](https://policies.google.com/terms) | Sign-in, loaded from Google's own servers at runtime |
 | [Overpass API](https://overpass-api.de) | [Usage policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html) | OSM data queries (used by leaflet-pipeline) |
-- **Google Identity Services** — authentication
