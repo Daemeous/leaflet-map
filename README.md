@@ -17,6 +17,7 @@ This repo is the **primary deployment** (Stafford) and also hosts the shared fro
 | Stone, Great Wyrley & Penkridge | https://daemeous.github.io/stone/ |
 | Barnsley, Penistone & Stocksbridge | https://daemeous.github.io/barnsley/ |
 | St Helens | https://daemeous.github.io/sthelens/ |
+| Shipley + Keighley and Ilkley | https://daemeous.github.io/shipley/ |
 
 Related project — **[Pothole Watch](https://github.com/Daemeous/stafford-potholes)** (citizen pothole reporting, same visual style, separate Sheet/Apps Script backend):
 
