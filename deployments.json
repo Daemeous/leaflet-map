@@ -1,11 +1,12 @@
 {
-  "_comment": "Registry of live leaflet-map deployments, read by https://github.com/Daemeous/route-planner to populate its 'pick your area' dropdown instead of requiring a pasted URL. Add a new entry here whenever a new constituency deployment goes live (see leaflet-pipeline's WORKFLOW.md) -- name is shown in the dropdown, url is the deployment's own index.html origin.",
+  "_comment": "Registry of live leaflet-map deployments, read by https://github.com/Daemeous/route-planner to populate its 'pick your area' dropdown. Add a new entry here whenever a new constituency deployment goes live (see leaflet-pipeline's WORKFLOW.md) -- name is shown in the dropdown, url is the deployment's own index.html origin.",
   "deployments": [
     { "name": "Stafford", "url": "https://daemeous.github.io/leaflet-map/" },
     { "name": "South Hams", "url": "https://daemeous.github.io/south-hams/" },
     { "name": "Burton & Uttoxeter", "url": "https://daemeous.github.io/burton-uttoxeter/" },
     { "name": "Stone, Great Wyrley & Penkridge", "url": "https://daemeous.github.io/stone/" },
     { "name": "Barnsley, Penistone & Stocksbridge", "url": "https://daemeous.github.io/barnsley/" },
-    { "name": "St Helens", "url": "https://daemeous.github.io/sthelens/" }
+    { "name": "St Helens", "url": "https://daemeous.github.io/sthelens/" },
+    { "name": "Shipley + Keighley and Ilkley", "url": "https://daemeous.github.io/shipley/" }
   ]
 }
