@@ -47,6 +47,7 @@ Authorised users can sign in with Google and update road statuses directly from 
 | `index.html` | This deployment's config block (Sheet ID, Apps Script URL, title/subtitle, map centre) |
 | `core.js` | **Shared app logic** — loaded directly by every other deployment's `index.html` from `https://daemeous.github.io/leaflet-map/core.js`. A change here goes live for all of them on push. |
 | `styles.css` | **Shared styles** — same sharing as `core.js`, loaded from `https://daemeous.github.io/leaflet-map/styles.css`. |
+| `help.html` | **Shared user guide** — the sidebar's "📖 User Guide" link (in `core.js`) points every deployment here: `https://daemeous.github.io/leaflet-map/help.html`. Plain page navigation, not a cross-origin script/stylesheet load, so it isn't subject to the `?shared_v` caching issue below — editing it needs no version bump anywhere. |
 | `sw.js` | Service worker (PWA offline shell + map tile cache). Must stay same-origin, so every deployment keeps its own copy — see the comment in `core.js`'s `injectPwaHead()`. |
 
 ---

@@ -18,6 +18,7 @@
    Optional overrides:
      STATUSES   — override the status definitions array
      POLL_INTERVAL_MS
+     HELP_URL   — override the sidebar "User Guide" link target
    ============================================================================ */
 
 (function () {
@@ -46,6 +47,10 @@
   const LS_MYPENDING = `leafmap_mypending_v1_${LS_SUFFIX}`;
   const INITIAL_VIEW = CFG.INITIAL_VIEW || [52.8, -2.12];
   const INITIAL_ZOOM = CFG.INITIAL_ZOOM || 12;
+  // Shared across every deployment (same pattern as core.js/styles.css
+  // themselves) rather than a relative link, since each deployment lives at
+  // its own path and doesn't carry its own copy of help.html.
+  const HELP_URL = CFG.HELP_URL || "https://daemeous.github.io/leaflet-map/help.html";
 
   // When true: Google sign-in still runs as normal (so the app knows who's
   // signed in), but the client-side "is this person on the Authorised list"
@@ -193,6 +198,7 @@
         <button class="ward-all-btn" id="pending-panel-link" onclick="openPendingPanel()" style="border-style:solid;border-color:var(--yellow);color:var(--yellow);margin-bottom:8px;">⏳ Pending changes<span class="toggle-count" id="pending-count" style="margin-left:6px;"></span></button>
         <button class="ward-all-btn" id="admin-panel-link" onclick="openAdminPanel()" style="border-color:var(--red);color:var(--red);">⚠ Editor history / revert</button>
       </div>
+      <a href="${HELP_URL}" target="_blank" rel="noopener" style="display:block;text-align:center;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.06em;color:var(--muted);text-decoration:none;padding:9px;border:1px solid var(--border);border-radius:6px;">📖 User Guide</a>
     </div>
   </aside>
   <div id="map-wrap">

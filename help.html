@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Guide — Leafletting Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  :root{
+    --bg:#0f1117; --panel:#181c27; --border:#2a2f3f; --text:#e8eaf0; --muted:#9aa0b8;
+    --accent:#4f8ef7; --green:#3ecf6e; --yellow:#f5c842; --red:#f75f5f; --purple:#a78bfa;
+  }
+  html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;line-height:1.6;}
+  body{max-width:760px;margin:0 auto;padding:32px 20px 80px;}
+  a{color:var(--accent);}
+  h1{font-family:'DM Mono',monospace;font-size:22px;letter-spacing:0.02em;margin-bottom:6px;text-wrap:balance;}
+  .subtitle{color:var(--muted);font-size:14px;margin-bottom:24px;}
+  nav.toc{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:36px;}
+  nav.toc a{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;
+    padding:8px 14px;border:1px solid var(--border);border-radius:20px;text-decoration:none;color:var(--text);
+    background:var(--panel);transition:border-color .15s,color .15s;}
+  nav.toc a:hover{border-color:var(--accent);color:var(--accent);}
+  section{margin-bottom:48px;scroll-margin-top:20px;}
+  h2{font-family:'DM Mono',monospace;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;
+    color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:18px;}
+  h3{font-size:15px;font-weight:700;margin:22px 0 8px;}
+  p{margin-bottom:12px;color:var(--text);}
+  p.muted,li.muted{color:var(--muted);font-size:13px;}
+  ul,ol{margin:0 0 14px 22px;}
+  li{margin-bottom:8px;}
+  code{font-family:'DM Mono',monospace;font-size:0.9em;background:rgba(255,255,255,0.06);
+    padding:1px 6px;border-radius:4px;}
+  .legend{display:flex;flex-direction:column;gap:8px;margin:16px 0;background:var(--panel);
+    border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+  .legend-row{display:flex;align-items:center;gap:10px;font-size:13px;}
+  .dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
+  .dot.green{background:var(--green);box-shadow:0 0 6px var(--green);}
+  .dot.yellow{background:var(--yellow);box-shadow:0 0 6px var(--yellow);}
+  .dot.blue{background:var(--accent);box-shadow:0 0 6px var(--accent);}
+  .dot.red{background:var(--red);box-shadow:0 0 6px var(--red);}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin:14px 0;}
+  .card h4{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;
+    color:var(--purple);margin-bottom:8px;}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);}
+  th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);}
+  .callout{border-left:3px solid var(--accent);padding:10px 14px;background:rgba(79,142,247,0.08);
+    border-radius:0 6px 6px 0;font-size:13px;margin:14px 0;}
+  .callout.warn{border-left-color:var(--yellow);background:rgba(245,200,66,0.08);}
+  footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;}
+  .back{display:inline-block;margin-bottom:20px;font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);
+    text-decoration:none;}
+  .back:hover{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<a class="back" href="javascript:history.length>1?history.back():window.close()">← Back</a>
+<h1>User Guide</h1>
+<p class="subtitle">How to use the map, the tracking spreadsheet, and the Route Planner.</p>
+
+<nav class="toc">
+  <a href="#map">🗺 Using the map</a>
+  <a href="#sheet">📊 The spreadsheet</a>
+  <a href="#routes">📋 Route Planner</a>
+</nav>
+
+<section id="map">
+  <h2>Using the map</h2>
+
+  <p>Every road is coloured by its current status:</p>
+  <div class="legend">
+    <div class="legend-row"><span class="dot green"></span> <strong>Complete</strong> — done</div>
+    <div class="legend-row"><span class="dot yellow"></span> <strong>In Progress</strong> — partway through</div>
+    <div class="legend-row"><span class="dot blue"></span> <strong>Planned</strong> — next up</div>
+    <div class="legend-row"><span class="dot red"></span> <strong>Not Started</strong> — not touched yet</div>
+  </div>
+
+  <h3>Finding your way around</h3>
+  <ul>
+    <li><strong>Status filters</strong> — tap a status in the sidebar to hide/show it on the map.</li>
+    <li><strong>Road search</strong> — type a road name and tap a result to jump to it.</li>
+    <li><strong>Ward list</strong> — search or tick individual wards, or "Select / deselect all".</li>
+    <li><strong>⊕ Find my ward</strong> — uses your phone's location to jump straight to the ward you're standing in and filter the map to it.</li>
+    <li><strong>◉ Live tracking</strong> — keeps the map centred on you as you walk your round.</li>
+    <li>On mobile, tap <strong>☰</strong> to open/close the sidebar.</li>
+  </ul>
+
+  <h3>Recording your progress</h3>
+  <p>Tap any road to open its popup, then sign in with Google (one tap — it remembers you after that) to change its status.</p>
+  <div class="callout">
+    If your email is on that area's <strong>Authorised</strong> list, your changes save straight away. Everyone else's
+    changes go into a <strong>pending review queue</strong> for an authorised editor to approve — this is completely
+    normal for most volunteers, your update just needs a quick nod from a coordinator first.
+  </div>
+
+  <h3>Only did part of a road?</h3>
+  <p>Open the road's popup and choose <strong>Partial</strong> instead of a full status. Drag along the road to mark
+  the exact stretch you covered — choose <strong>one side</strong> or <strong>both sides</strong> — then Save. This
+  is the right way to record "did the north end but not the rest" instead of marking the whole road Complete.</p>
+
+  <h3>The sync bar</h3>
+  <p>The bar at the top of the sidebar shows how fresh the data is. Tap it to check for updates now; shift-click
+  (or press-and-hold on mobile) to force a full reload if something looks stuck or wrong.</p>
+</section>
+
+<section id="sheet">
+  <h2>The spreadsheet</h2>
+  <p>Every tracker is backed by one Google Sheet. Most people only ever need two of its tabs.</p>
+
+  <div class="card">
+    <h4>Dashboard tab</h4>
+    <p>Your at-a-glance summary, updated live as volunteers report progress on the map:</p>
+    <table>
+      <tr><th>Column</th><th>What it means</th></tr>
+      <tr><td>Streets / Complete / In Progress / Planned / Not Started</td><td>Road counts per ward, by status</td></tr>
+      <tr><td>% Roads Complete</td><td>Share of that ward's roads marked Complete (colour-scaled green)</td></tr>
+      <tr><td>Residences / Estimate served</td><td>Estimated homes in the ward, and how many have been reached so far</td></tr>
+      <tr><td>% Residences Complete</td><td>Estimate served ÷ total residences</td></tr>
+      <tr><td>Overseer</td><td>Blank by default — fill in by hand to note who's running that ward</td></tr>
+      <tr><td>Residences Remaining</td><td>Homes left to reach (colour-scaled red — the biggest opportunities stand out)</td></tr>
+    </table>
+    <p>The <strong>Overall</strong> row totals every ward. Below it, a <strong>Borough Summary</strong> block gives
+    the whole-area picture: total roads/residences, residences reached (complete-only, and a weighted figure that
+    gives partial credit for in-progress roads), residences remaining, % reached, and how many wards are fully done
+    versus not started at all. Four charts underneath break the same numbers down by ward — useful for deciding
+    where to send people next.</p>
+  </div>
+
+  <div class="card">
+    <h4>About the residence estimate</h4>
+    <p>"Residences" comes from <strong>OS Open UPRN</strong> — a national dataset of Unique Property Reference
+    Numbers, one per addressable object. That's not just front doors: it also includes garages, sheds and other
+    outbuildings with their own address, and individual flats within a converted house each get their own UPRN
+    (correctly, since each one needs its own leaflet). The pipeline counts every UPRN within 40m of a road, so the
+    figure runs a little high — a handful of non-residential addresses can slip through alongside the real ones,
+    and the 40m buffer occasionally catches a property that actually fronts a neighbouring road.</p>
+    <p class="muted">Treat it as a ceiling rather than an exact headcount. That's the right direction to be wrong in
+    for planning a print run, though — better to bring a few spare leaflets than run out halfway down a road.</p>
+  </div>
+
+  <div class="card">
+    <h4>Authorised tab</h4>
+    <p>A plain list of Google account email addresses — one per row, column A — for people allowed to:</p>
+    <ul>
+      <li>have their map edits save instantly instead of going to the pending queue, and</li>
+      <li>use the map's Admin panel (approve/deny pending changes, ban a misbehaving submitter, view or revert edit history).</li>
+    </ul>
+    <p><strong>To make someone an authorised editor:</strong> add their Google account email as a new row in column A.
+    <strong>To remove access:</strong> delete their row. Either takes effect immediately — no redeploy needed, it's
+    checked fresh every time someone signs in.</p>
+  </div>
+
+  <p class="muted">The <strong>Data</strong> tab is the master road list the map reads from — it updates itself as
+  people report progress, so there's normally no need to hand-edit it (editing <code>Status</code> here skips the
+  review/logging the map's own edit flow gives you). <strong>Changelog</strong> and <strong>Checksum</strong> are
+  internal bookkeeping for the app — nothing to do there either.</p>
+</section>
+
+<section id="routes">
+  <h2>Route Planner</h2>
+  <p>A separate tool — <a href="https://daemeous.github.io/route-planner/" target="_blank" rel="noopener">daemeous.github.io/route-planner</a>
+  — for planning printed, walkable routes ahead of a leafletting event day. It's not for day-to-day tracking;
+  that's what this map is for.</p>
+
+  <ol>
+    <li>Paste the link to your area's live tracker site (the one this guide is linked from) — it reads the live
+    road data automatically.</li>
+    <li>Pick a ward, a target route size (defaults to ~150 residences, roughly a 90-minute walk), and a start point
+    — a nearby pub is suggested automatically, or set your own.</li>
+    <li>Build — routes are generated in your browser in seconds.</li>
+    <li>Review the routes on the map and list, then download/print route sheets (with QR codes) or publish an
+    interactive page for your team to use on the day.</li>
+  </ol>
+
+  <p>On the day, whoever's walking a route signs in with Google on the generated page — same account, same
+  authorised-vs-pending-review rule as the main map above — and their taps write straight back to this area's own
+  tracker Sheet. There's no separate spreadsheet to manage.</p>
+
+  <div class="callout warn">
+    Generate routes close to the event day, not weeks ahead. Plans older than 14 days get cleaned up automatically,
+    and a route built too early risks sending people to roads that got done in the meantime.
+  </div>
+</section>
+
+<footer>
+  Something look wrong, or missing from this guide? Ask whoever set up your area's tracker.
+</footer>
+
+</body>
+</html>
