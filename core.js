@@ -404,6 +404,14 @@
   // replaying against state that's since moved on is a worse failure mode
   // than just telling the editor to retry once they're back in signal.
   let offlineQueue = [];
+  // rowIdx -> {value, ts} for "update" writes that just flushed successfully.
+  // Google's published-CSV export (SHEET_CSV_URL/CHECKSUM_URL) lags a live
+  // Apps Script write by up to a couple of minutes, so the very next fetch
+  // after a flush can still show the pre-edit value. ingestRows consults
+  // this to avoid reverting a row we know we just wrote, rather than
+  // trusting every fetch as automatically fresher than local state.
+  let recentlyFlushed = new Map();
+  const RECENT_FLUSH_GRACE_MS = 3 * 60 * 1000;
   function loadOfflineQueue() {
     try { const raw=localStorage.getItem(LS_OFFLINEQUEUE); offlineQueue = raw ? JSON.parse(raw) : []; }
     catch(e){ offlineQueue=[]; }
@@ -442,11 +450,15 @@
     const tp = authTokenType==="idToken" ? {idToken:authToken} : {accessToken:authToken};
     let syncedAny=false, i=0;
     for(; i<offlineQueue.length; i++){
+      const item = offlineQueue[i];
       let data;
       try {
-        data = await (await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...offlineQueue[i].payload,...tp})})).json();
+        data = await (await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...item.payload,...tp})})).json();
       } catch(e) { break; } // still offline — this one and the rest stay queued
-      if(data.ok) { syncedAny=true; }
+      if(data.ok) {
+        syncedAny=true;
+        if(item.kind==="update") recentlyFlushed.set(item.rowIdx,{value:item.payload.newStatus,ts:Date.now()});
+      }
       else { showError(`A change saved offline couldn't be synced: ${data.error||"unknown error"} — it's been dropped.`); }
     }
     offlineQueue = offlineQueue.slice(i);
@@ -457,6 +469,7 @@
     // moment each one was queued, same as a normal online save — so a
     // successful flush only needs to update the sync-bar text, not re-render.
     if(syncedAny) setSyncState("fresh","Synced offline changes · "+formatTime(new Date()));
+    return syncedAny;
   }
 
   // ── Sync UI ───────────────────────────────────────────────────────────────────
@@ -1092,7 +1105,21 @@
         const updated=newByIdx.get(existing._rowIdx);
         if(!updated) return;
         let rowChanged=false;
-        if(updated.Status!==existing.Status){existing.Status=updated.Status;rowChanged=true;clearMyPending(existing._rowIdx);}
+        if(updated.Status!==existing.Status){
+          const rf=recentlyFlushed.get(existing._rowIdx);
+          const stillFresh=rf && (Date.now()-rf.ts)<RECENT_FLUSH_GRACE_MS;
+          if(stillFresh && rf.value===existing.Status) {
+            // We just flushed this exact value; this fetch predates the
+            // published-CSV export catching up. Ignore it rather than
+            // reverting the row — the next poll picks up the real state
+            // once the export catches up (or this guard expires).
+          } else {
+            existing.Status=updated.Status;rowChanged=true;clearMyPending(existing._rowIdx);
+            recentlyFlushed.delete(existing._rowIdx);
+          }
+        } else {
+          recentlyFlushed.delete(existing._rowIdx);
+        }
         if((updated.partial_geometry||"-")!==(existing.partial_geometry||"-")){existing.partial_geometry=updated.partial_geometry;rowChanged=true;}
         if(rowChanged) {
           invalidateRowLayers(existing._rowIdx);
@@ -1139,7 +1166,12 @@
   async function checkForUpdates(isManual=false) {
     if(isChecking) return;
     isChecking=true;
-    flushOfflineQueue(); // not awaited — a secondary concern, shouldn't delay the checksum check below
+    // Awaited (and ordered before the checksum check) so a resync — manual
+    // click or automatic reconnect — actually pushes queued offline writes
+    // before asking the server whether anything changed, rather than racing
+    // the push against the check.
+    if(offlineQueue.length) setSyncState("checking","Syncing offline changes…");
+    await flushOfflineQueue();
     setSyncState("checking",isManual?"Checking…":"Checking for updates…");
     try {
       const cs=await fetchChecksum();
@@ -1165,7 +1197,11 @@
   function manualRefresh(){clearTimeout(pollTimer);checkForUpdates(true);}
   // Reconnecting mid-round shouldn't require a manual tap to pick up any
   // status changes made by other editors while signal was down.
-  window.addEventListener("online",()=>{ flushOfflineQueue(); if(!isChecking) checkForUpdates(false); });
+  // checkForUpdates() already awaits flushOfflineQueue() itself, so only
+  // call it directly here when a check is already in flight (flushOfflineQueue
+  // no-ops while another flush is running, so calling both at once would
+  // just make the in-flight checkForUpdates() skip its own flush).
+  window.addEventListener("online",()=>{ if(isChecking) flushOfflineQueue(); else checkForUpdates(false); });
 
   // ── Force full reload ─────────────────────────────────────────────────────────
   // Bypasses the checksum entirely and forces a from-scratch rebuild of
