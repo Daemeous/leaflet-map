@@ -790,6 +790,8 @@
     const zoom=map.getZoom();
     allRoads.forEach(road=>{
       if(statusKey(road.Status)!=="inprogress") return;
+      if(!activeStatus.has("inprogress")) return;
+      if(!activeWards.has((road.Ward||"Unknown").trim())) return;
       const pgStr=(road.partial_geometry||"").trim();
       if(!pgStr||pgStr==="-") return;
       if(zoom<PARTIAL_ZOOM_THRESHOLD && road.Street.toLowerCase()!==(selectedRoadName||"").toLowerCase()) return;
