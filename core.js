@@ -45,6 +45,7 @@
   const LS_AUTH     = `leafmap_auth_v1_${LS_SUFFIX}`;
   const LS_COOKIE   = `leafmap_cookie_consent_${LS_SUFFIX}`;
   const LS_MYPENDING = `leafmap_mypending_v1_${LS_SUFFIX}`;
+  const LS_OFFLINEQUEUE = `leafmap_offlineq_v1_${LS_SUFFIX}`;
   const INITIAL_VIEW = CFG.INITIAL_VIEW || [52.8, -2.12];
   const INITIAL_ZOOM = CFG.INITIAL_ZOOM || 12;
   // Shared across every deployment (same pattern as core.js/styles.css
@@ -164,6 +165,7 @@
         <div id="sync-left"><div id="sync-dot"></div><span id="sync-text">Loading…</span></div>
         <span id="sync-icon">↻</span>
       </div>
+      <div id="offline-queue-note" style="display:none;margin-top:6px;padding:6px 10px;border-radius:6px;background:rgba(245,200,66,0.1);border:1px solid rgba(245,200,66,0.35);font-family:'DM Mono',monospace;font-size:10px;color:var(--yellow);"></div>
     </div>
     <div id="stats">
       <div id="stats-top">${buildStatsTop()}</div>
@@ -393,6 +395,68 @@
       });
       if(changed){saveMyPending();renderLines();updateStats();updateCountBadges();}
     }catch(e){ /* offline or network error — leave local state, retry next poll */ }
+  }
+
+  // ── Offline write queue ─────────────────────────────────────────────────────
+  // Covers the two "record my progress" writes only (full status update, and
+  // an unauthorised proposal) — not partial-geometry saves or admin actions
+  // (revert/ban/etc). Those stay online-only for now: a queued admin action
+  // replaying against state that's since moved on is a worse failure mode
+  // than just telling the editor to retry once they're back in signal.
+  let offlineQueue = [];
+  function loadOfflineQueue() {
+    try { const raw=localStorage.getItem(LS_OFFLINEQUEUE); offlineQueue = raw ? JSON.parse(raw) : []; }
+    catch(e){ offlineQueue=[]; }
+  }
+  function saveOfflineQueue() {
+    try { localStorage.setItem(LS_OFFLINEQUEUE, JSON.stringify(offlineQueue)); } catch(e){}
+  }
+  // rowIdx is duplicated out of payload.rowIndex purely so the popup badge
+  // check (below) doesn't need to know each payload shape.
+  function queueOfflineWrite(kind, payload, rowIdx) {
+    offlineQueue.push({ id: Date.now()+"_"+Math.random().toString(36).slice(2), kind, payload, rowIdx, ts: Date.now() });
+    saveOfflineQueue();
+    updateOfflineQueueNote();
+  }
+  function isRowQueuedOffline(rowIdx) { return offlineQueue.some(q=>q.rowIdx===rowIdx); }
+  function updateOfflineQueueNote() {
+    const el=document.getElementById("offline-queue-note");
+    if(!el) return;
+    if(offlineQueue.length>0) {
+      el.style.display="block";
+      el.textContent = `📡 ${offlineQueue.length} change${offlineQueue.length===1?"":"s"} saved offline — will sync automatically`;
+    } else {
+      el.style.display="none";
+    }
+  }
+  // Replays queued writes in order against the live Apps Script backend.
+  // Stops at the first one that still can't reach the network (leaving it
+  // and everything after it queued for next time) but drops — rather than
+  // retries forever — one the server itself rejects (e.g. a since-expired
+  // token or a genuinely invalid row), since that's not a connectivity
+  // problem retrying will fix.
+  let offlineFlushing = false;
+  async function flushOfflineQueue() {
+    if(offlineFlushing || !offlineQueue.length || !navigator.onLine || !tokenIsValid()) return;
+    offlineFlushing = true;
+    const tp = authTokenType==="idToken" ? {idToken:authToken} : {accessToken:authToken};
+    let syncedAny=false, i=0;
+    for(; i<offlineQueue.length; i++){
+      let data;
+      try {
+        data = await (await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...offlineQueue[i].payload,...tp})})).json();
+      } catch(e) { break; } // still offline — this one and the rest stay queued
+      if(data.ok) { syncedAny=true; }
+      else { showError(`A change saved offline couldn't be synced: ${data.error||"unknown error"} — it's been dropped.`); }
+    }
+    offlineQueue = offlineQueue.slice(i);
+    saveOfflineQueue();
+    updateOfflineQueueNote();
+    offlineFlushing = false;
+    // The map already shows these changes — applied optimistically the
+    // moment each one was queued, same as a normal online save — so a
+    // successful flush only needs to update the sync-bar text, not re-render.
+    if(syncedAny) setSyncState("fresh","Synced offline changes · "+formatTime(new Date()));
   }
 
   // ── Sync UI ───────────────────────────────────────────────────────────────────
@@ -775,6 +839,8 @@
   function popupHtml(row) {
     const st=getStatus(effectiveStatus(row));
     const isPending=!!myPendingFor(row._rowIdx);
+    const isQueuedOffline=!isPending&&isRowQueuedOffline(row._rowIdx);
+    const badge=isPending?" ⏳":(isQueuedOffline?" 📡":"");
     const resStr=fmtResidences(row);
     const resBadge=resStr?`<span class="popup-residences">🏠 ${escHtml(resStr)} residences</span>`:"";
     return `
@@ -782,7 +848,7 @@
       <div class="popup-ward">${escHtml(row.Ward)}</div>
       <div class="popup-meta">
         <button class="popup-status-btn" data-row-idx="${row._rowIdx}" title="Click to change status">
-          <span class="popup-status ${st.popupCls}">${escHtml(st.label)}${isPending?" ⏳":""}</span>
+          <span class="popup-status ${st.popupCls}">${escHtml(st.label)}${badge}</span>
         </button>
         ${resBadge}
       </div>
@@ -1073,6 +1139,7 @@
   async function checkForUpdates(isManual=false) {
     if(isChecking) return;
     isChecking=true;
+    flushOfflineQueue(); // not awaited — a secondary concern, shouldn't delay the checksum check below
     setSyncState("checking",isManual?"Checking…":"Checking for updates…");
     try {
       const cs=await fetchChecksum();
@@ -1098,7 +1165,7 @@
   function manualRefresh(){clearTimeout(pollTimer);checkForUpdates(true);}
   // Reconnecting mid-round shouldn't require a manual tap to pick up any
   // status changes made by other editors while signal was down.
-  window.addEventListener("online",()=>{ if(!isChecking) checkForUpdates(false); });
+  window.addEventListener("online",()=>{ flushOfflineQueue(); if(!isChecking) checkForUpdates(false); });
 
   // ── Force full reload ─────────────────────────────────────────────────────────
   // Bypasses the checksum entirely and forces a from-scratch rebuild of
@@ -1401,7 +1468,9 @@
     const hasGeom=row&&parseWKT(row.road_geometry).length>0;
     const myPending=myPendingFor(rowRef.rowIdx);
     const pendingNote=(!authAuthorised&&myPending&&myPending.field==="status")
-      ? `<div class="popup-auth-msg" style="color:var(--yellow);">⏳ Your suggested change to "${escHtml(getStatus(myPending.value).label)}" is awaiting review.</div>`
+      ? (isRowQueuedOffline(rowRef.rowIdx)
+          ? `<div class="popup-auth-msg" style="color:var(--yellow);">📡 Your suggested change to "${escHtml(getStatus(myPending.value).label)}" is saved offline — it'll be submitted once you're back online.</div>`
+          : `<div class="popup-auth-msg" style="color:var(--yellow);">⏳ Your suggested change to "${escHtml(getStatus(myPending.value).label)}" is awaiting review.</div>`)
       : "";
     editDiv.innerHTML=`
       <div class="popup-user-line">
@@ -1433,23 +1502,40 @@
 
   function showEditMsg(editDiv,msg,type){if(!editDiv)return;editDiv.innerHTML=`<div class="popup-auth-msg ${type}">${escHtml(msg)}</div>`;}
 
+  function applyStatusLocally(rowIdx,sheetValue) {
+    const row=allRoads.find(r=>r._rowIdx===rowIdx);
+    if(row){
+      row.Status=sheetValue;
+      invalidateRowLayers(rowIdx);
+      renderLines(); updateStats(); updateCountBadges();
+      recomputeAndSaveChecksum();
+    }
+  }
+
   async function submitStatusChange(rowIdx,sheetValue,btn) {
     const editDiv=btn.closest(".popup-edit-area");
     editDiv.innerHTML=`<div class="popup-saving">Saving…</div>`;
+    const payload={action:"update",rowIndex:rowIdx,newStatus:sheetValue};
+    if(!navigator.onLine){
+      applyStatusLocally(rowIdx,sheetValue);
+      queueOfflineWrite("update",payload,rowIdx);
+      showEditMsg(editDiv,"No connection — saved offline, will sync automatically","success");
+      setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
+      return;
+    }
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"update",rowIndex:rowIdx,newStatus:sheetValue,...tp})})).json();
+      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...payload,...tp})})).json();
       if(!data.ok){showEditMsg(editDiv,data.error||"Save failed.","error");return;}
-      const row=allRoads.find(r=>r._rowIdx===rowIdx);
-      if(row){
-        row.Status=sheetValue;
-        invalidateRowLayers(rowIdx);
-        renderLines(); updateStats(); updateCountBadges();
-        recomputeAndSaveChecksum();
-      }
+      applyStatusLocally(rowIdx,sheetValue);
       showEditMsg(editDiv,`Saved as "${getStatus(sheetValue).label}"`,"success");
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
-    }catch(e){showEditMsg(editDiv,"Network error: "+e.message,"error");}
+    }catch(e){
+      applyStatusLocally(rowIdx,sheetValue);
+      queueOfflineWrite("update",payload,rowIdx);
+      showEditMsg(editDiv,"No connection — saved offline, will sync automatically","success");
+      setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
+    }
   }
 
   // For unauthorised-but-verified users: writes to the Pending sheet only —
@@ -1457,19 +1543,36 @@
   // preview via myPendingByRow/effectiveStatus so the road shows the
   // suggested colour to the person who suggested it, without affecting
   // anyone else's view or the shared checksum-synced data.
+  function applyProposalLocally(rowIdx,sheetValue) {
+    setMyPending(rowIdx,"status",sheetValue);
+    invalidateRowLayers(rowIdx);
+    renderLines(); updateStats(); updateCountBadges();
+  }
+
   async function submitProposedStatus(rowIdx,sheetValue,btn) {
     const editDiv=btn.closest(".popup-edit-area");
     editDiv.innerHTML=`<div class="popup-saving">Submitting…</div>`;
+    const payload={action:"propose",field:"status",rowIndex:rowIdx,newStatus:sheetValue};
+    if(!navigator.onLine){
+      applyProposalLocally(rowIdx,sheetValue);
+      queueOfflineWrite("propose",payload,rowIdx);
+      showEditMsg(editDiv,"No connection — suggestion saved offline, will submit automatically","success");
+      setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
+      return;
+    }
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"propose",field:"status",rowIndex:rowIdx,newStatus:sheetValue,...tp})})).json();
+      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...payload,...tp})})).json();
       if(!data.ok){showEditMsg(editDiv,data.error||"Submit failed.","error");return;}
-      setMyPending(rowIdx,"status",sheetValue);
-      invalidateRowLayers(rowIdx);
-      renderLines(); updateStats(); updateCountBadges();
+      applyProposalLocally(rowIdx,sheetValue);
       showEditMsg(editDiv,`Suggested "${getStatus(sheetValue).label}" — awaiting review`,"success");
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
-    }catch(e){showEditMsg(editDiv,"Network error: "+e.message,"error");}
+    }catch(e){
+      applyProposalLocally(rowIdx,sheetValue);
+      queueOfflineWrite("propose",payload,rowIdx);
+      showEditMsg(editDiv,"No connection — suggestion saved offline, will submit automatically","success");
+      setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
+    }
   }
 
   function signOut() {
@@ -2359,6 +2462,8 @@
   (async function boot() {
     restoreAuthSession();
     loadMyPending();
+    loadOfflineQueue();
+    updateOfflineQueueNote();
     if(isMobile()) openSidebar();
     const cached=loadFromCache();
     if(cached&&cached.rows&&cached.rows.length){
