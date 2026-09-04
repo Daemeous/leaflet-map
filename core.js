@@ -175,32 +175,35 @@
       </div>
     </div>
     <div class="sidebar-scroll">
-      <div class="filter-section">
-        <div class="filter-label">Status</div>
-        <div class="status-toggles">${buildStatusToggles()}</div>
-      </div>
-      <div class="filter-section">
-        <div class="filter-label">Road Search</div>
-        <div class="road-search-wrap">
-          <input class="road-search-input" id="road-search-input" type="text" placeholder="Search roads…" autocomplete="off"
-            oninput="onRoadSearchInput(this.value)" onkeydown="onRoadSearchKey(event)" onfocus="onRoadSearchInput(this.value)">
-          <button class="road-search-clear" id="road-search-clear" onclick="clearRoadSearch()" title="Clear">✕</button>
-          <div class="road-dropdown" id="road-dropdown"></div>
+      <div id="sidebar-main-content">
+        <div class="filter-section">
+          <div class="filter-label">Status</div>
+          <div class="status-toggles">${buildStatusToggles()}</div>
         </div>
+        <div class="filter-section">
+          <div class="filter-label">Road Search</div>
+          <div class="road-search-wrap">
+            <input class="road-search-input" id="road-search-input" type="text" placeholder="Search roads…" autocomplete="off"
+              oninput="onRoadSearchInput(this.value)" onkeydown="onRoadSearchKey(event)" onfocus="onRoadSearchInput(this.value)">
+            <button class="road-search-clear" id="road-search-clear" onclick="clearRoadSearch()" title="Clear">✕</button>
+            <div class="road-dropdown" id="road-dropdown"></div>
+          </div>
+        </div>
+        <div class="filter-section">
+          <div class="filter-label">Ward</div>
+          <button class="ward-all-btn" id="gps-locate-btn" onclick="locateAndFilterWard()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">⊕ Find my ward</button>
+          <button class="ward-all-btn" id="live-track-btn" onclick="toggleLiveTracking()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">◉ Live tracking: Off</button>
+          <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
+          <button class="ward-all-btn" onclick="selectAllWards()">Select / deselect all</button>
+          <div class="ward-list" id="ward-list"></div>
+        </div>
+        <div class="filter-section" style="margin-top:auto;display:none;" id="admin-panel-section">
+          <button class="ward-all-btn" id="pending-panel-link" onclick="openPendingPanel()" style="border-style:solid;border-color:var(--yellow);color:var(--yellow);margin-bottom:8px;">⏳ Pending changes<span class="toggle-count" id="pending-count" style="margin-left:6px;"></span></button>
+          <button class="ward-all-btn" id="admin-panel-link" onclick="openAdminPanel()" style="border-color:var(--red);color:var(--red);">⚠ Editor history / revert</button>
+        </div>
+        <a href="${HELP_URL}" target="_blank" rel="noopener" style="display:block;text-align:center;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.06em;color:var(--muted);text-decoration:none;padding:9px;border:1px solid var(--border);border-radius:6px;">📖 User Guide</a>
       </div>
-      <div class="filter-section">
-        <div class="filter-label">Ward</div>
-        <button class="ward-all-btn" id="gps-locate-btn" onclick="locateAndFilterWard()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">⊕ Find my ward</button>
-        <button class="ward-all-btn" id="live-track-btn" onclick="toggleLiveTracking()" style="border-style:solid;border-color:var(--accent);color:var(--accent);margin-bottom:8px;">◉ Live tracking: Off</button>
-        <input class="ward-search" type="text" placeholder="Search wards…" oninput="filterWardList(this.value)">
-        <button class="ward-all-btn" onclick="selectAllWards()">Select / deselect all</button>
-        <div class="ward-list" id="ward-list"></div>
-      </div>
-      <div class="filter-section" style="margin-top:auto;display:none;" id="admin-panel-section">
-        <button class="ward-all-btn" id="pending-panel-link" onclick="openPendingPanel()" style="border-style:solid;border-color:var(--yellow);color:var(--yellow);margin-bottom:8px;">⏳ Pending changes<span class="toggle-count" id="pending-count" style="margin-left:6px;"></span></button>
-        <button class="ward-all-btn" id="admin-panel-link" onclick="openAdminPanel()" style="border-color:var(--red);color:var(--red);">⚠ Editor history / revert</button>
-      </div>
-      <a href="${HELP_URL}" target="_blank" rel="noopener" style="display:block;text-align:center;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.06em;color:var(--muted);text-decoration:none;padding:9px;border:1px solid var(--border);border-radius:6px;">📖 User Guide</a>
+      <div class="filter-section" id="pending-preview-panel" style="display:none;"></div>
     </div>
   </aside>
   <div id="map-wrap">
@@ -240,6 +243,7 @@
   let allRoads     = [];
   let layerGroups  = {};
   let partialLayerGroup = L.layerGroup().addTo(map);
+  let pendingPreviewLayer = L.layerGroup().addTo(map);
   let activeStatus = new Set(STATUSES.map(s=>s.key));
   let activeWards  = new Set();
   let wardCounts   = {};
@@ -1001,11 +1005,29 @@
   }
 
   // ── Wards ─────────────────────────────────────────────────────────────────────
+  // Points across every road in a ward, regardless of the current status/ward
+  // filters — used purely to fit the map to a ward's extent on solo-select.
+  function wardLatLngs(ward) {
+    const pts=[];
+    allRoads.forEach(r=>{
+      if((r.Ward||"Unknown").trim()!==ward) return;
+      parseWKT(r.road_geometry).forEach(seg=>seg.forEach(pt=>pts.push(pt)));
+      const lat=parseFloat(r["@lat"]),lon=parseFloat(r["@lon"]);
+      if(!isNaN(lat)&&!isNaN(lon)) pts.push([lat,lon]);
+    });
+    return pts;
+  }
   function soloWard(ward,e) {
     e.stopPropagation();
     const all=Object.keys(wardCounts);
-    if(activeWards.size===1&&activeWards.has(ward)) all.forEach(w=>activeWards.add(w));
-    else { activeWards.clear(); activeWards.add(ward); }
+    if(activeWards.size===1&&activeWards.has(ward)) {
+      // Restoring "all wards" — leave the current view alone.
+      all.forEach(w=>activeWards.add(w));
+    } else {
+      activeWards.clear(); activeWards.add(ward);
+      const pts=wardLatLngs(ward);
+      if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1));
+    }
     buildWardList(document.querySelector(".ward-search").value);
     renderLines(); updateStats();
     if(isMobile()) closeSidebar();
@@ -1981,6 +2003,7 @@
       showError("Sign in first to access pending changes.");
       return;
     }
+    closePendingPreview(); // opening/reopening the list always supersedes any road preview
     renderPendingModal("loading");
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
     fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingList",...tp})})
@@ -2017,6 +2040,7 @@
                 <div style="font-size:11px;color:var(--text);margin-bottom:4px;">${oldLabel} → <strong>${newLabel}</strong></div>
                 <div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:6px;">by ${escHtml(it.submitter)}</div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="popup-partial-action-btn" data-preview-idx="${i}">👁 Preview</button>
                   <button class="popup-partial-action-btn active" style="border-color:var(--darkgreen);color:#4ecb82;" data-approve-idx="${i}">✓ Approve</button>
                   <button class="popup-partial-action-btn" data-deny-idx="${i}">✕ Deny</button>
                   <button class="popup-partial-action-btn danger" data-ban-idx="${i}">⛔ Ban submitter</button>
@@ -2049,6 +2073,9 @@
     if(backBtn) backBtn.addEventListener("click", openPendingPanel);
 
     if(state==="list") {
+      overlay.querySelectorAll("[data-preview-idx]").forEach(btn=>{
+        btn.addEventListener("click",()=>previewPendingItem(items[parseInt(btn.dataset.previewIdx,10)]));
+      });
       overlay.querySelectorAll("[data-approve-idx]").forEach(btn=>{
         btn.addEventListener("click",()=>reviewPendingItem(items[parseInt(btn.dataset.approveIdx,10)],"approve"));
       });
@@ -2116,6 +2143,81 @@
         openPendingPanel();
       })
       .catch(e=>showError("Network error: "+e.message));
+  }
+
+  // ── Pending change preview ──────────────────────────────────────────────────────
+  // Deliberately not another modal: reviewing is much easier with the map
+  // still pannable/clickable, so this swaps the sidebar's own content instead
+  // of opening admin-modal-overlay (which blurs and disables the map).
+  function previewPendingItem(item) {
+    const row=allRoads.find(r=>r._rowIdx===item.rowIndex);
+    closeAdminModal();
+    if(!row) {
+      showError("Couldn't find that road on the map — it may have been renamed or removed since this was suggested.");
+      return;
+    }
+
+    // The road only renders at all if its ward is in the active filter —
+    // add it (without touching any other selected wards) so "preview"
+    // reliably shows something rather than panning to an empty spot.
+    const ward=(row.Ward||"Unknown").trim();
+    if(!activeWards.has(ward)) {
+      activeWards.add(ward);
+      buildWardList(document.querySelector(".ward-search").value);
+      renderLines(); updateStats(); updateCountBadges();
+    }
+
+    const segs=parseWKT(row.road_geometry);
+    const lat=parseFloat(row["@lat"]),lon=parseFloat(row["@lon"]);
+    const pts=segs.flat();
+    if(!isNaN(lat)&&!isNaN(lon)) pts.push([lat,lon]);
+    if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.4),{maxZoom:18});
+
+    pendingPreviewLayer.clearLayers();
+    if(segs.length) segs.forEach(segPts=>L.polyline(segPts,{color:"#fff",weight:12,opacity:0.35,interactive:false}).addTo(pendingPreviewLayer));
+    else if(!isNaN(lat)&&!isNaN(lon)) L.circleMarker([lat,lon],{radius:14,color:"#fff",weight:3,opacity:0.6,fillOpacity:0,interactive:false}).addTo(pendingPreviewLayer);
+
+    renderPendingPreviewPanel(item);
+  }
+
+  function renderPendingPreviewPanel(item) {
+    const main=document.getElementById("sidebar-main-content");
+    if(main) main.style.display="none";
+    const panel=document.getElementById("pending-preview-panel");
+    if(!panel) return;
+    panel.style.display="";
+    const fieldLabel = item.field==="status" ? "Status" : "Partial completion";
+    const oldLabel = item.field==="status" ? escHtml(getStatus(item.oldValue).label) : escHtml(String(item.oldValue||"-"));
+    const newLabel = item.field==="status" ? escHtml(getStatus(item.proposedValue).label) : escHtml(String(item.proposedValue||"-"));
+    panel.innerHTML = `
+      <button class="ward-all-btn" id="pending-preview-back-btn" style="margin-bottom:12px;">← Back to pending changes</button>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;letter-spacing:0.08em;text-transform:uppercase;">📍 Previewing suggestion</div>
+      <div style="padding:10px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid var(--border);">
+        <div style="font-size:13px;color:var(--text);font-weight:500;">${escHtml(item.street)}</div>
+        <div style="font-size:10px;color:var(--muted);margin:2px 0 8px;">${escHtml(item.ward)} · ${fieldLabel}</div>
+        <div style="font-size:12px;color:var(--text);margin-bottom:8px;">${oldLabel} → <strong>${newLabel}</strong></div>
+        <div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:10px;">by ${escHtml(item.submitter)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="popup-partial-action-btn active" style="border-color:var(--darkgreen);color:#4ecb82;" id="pending-preview-approve-btn">✓ Approve</button>
+          <button class="popup-partial-action-btn" id="pending-preview-deny-btn">✕ Deny</button>
+          <button class="popup-partial-action-btn danger" id="pending-preview-ban-btn">⛔ Ban submitter</button>
+        </div>
+      </div>`;
+    panel.querySelector("#pending-preview-back-btn").addEventListener("click",openPendingPanel);
+    panel.querySelector("#pending-preview-approve-btn").addEventListener("click",()=>reviewPendingItem(item,"approve"));
+    panel.querySelector("#pending-preview-deny-btn").addEventListener("click",()=>reviewPendingItem(item,"deny"));
+    panel.querySelector("#pending-preview-ban-btn").addEventListener("click",()=>banPendingSubmitter(item));
+  }
+
+  // Leaves a preview: explicit back button, or implicitly whenever
+  // openPendingPanel() (re)opens the list after an approve/deny/ban. A no-op
+  // if no preview is currently showing.
+  function closePendingPreview() {
+    const panel=document.getElementById("pending-preview-panel");
+    if(panel) { panel.style.display="none"; panel.innerHTML=""; }
+    const main=document.getElementById("sidebar-main-content");
+    if(main) main.style.display="";
+    pendingPreviewLayer.clearLayers();
   }
 
   // ── Partial editor ────────────────────────────────────────────────────────────
