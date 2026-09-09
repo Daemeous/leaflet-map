@@ -19,6 +19,9 @@
      STATUSES   — override the status definitions array
      POLL_INTERVAL_MS
      HELP_URL   — override the sidebar "User Guide" link target
+     DISABLE_AUTH_CHECK    — treat every signed-in account as authorised
+     DEMO_RANDOM_LOCATION  — "Find my ward" uses a random point off an
+                             already-loaded road instead of real GPS
    ============================================================================ */
 
 (function () {
@@ -1813,54 +1816,55 @@
   let liveTrackAccuracy = null;
   let liveTrackCentered = false;
 
+  // Picks a random vertex off a random already-loaded road, rather than
+  // sampling the constituency boundary itself — this app never loads a
+  // boundary polygon on the frontend, only road geometry, and a point taken
+  // from a real road is guaranteed to land somewhere findNearestWardToPoint
+  // resolves sensibly (namely, that exact road's own ward).
+  function getDemoRandomPoint() {
+    const withGeom = allRoads.filter(r => {
+      const g = r.road_geometry;
+      return g && g !== "-" && g !== "NOT_FOUND";
+    });
+    if(!withGeom.length) return null;
+    const road = withGeom[Math.floor(Math.random()*withGeom.length)];
+    const segs = parseWKT(road.road_geometry);
+    if(!segs.length) return null;
+    const seg = segs[Math.floor(Math.random()*segs.length)];
+    const [lat,lon] = seg[Math.floor(Math.random()*seg.length)];
+    return {lat,lon};
+  }
+
   function locateAndFilterWard() {
     const btn = document.getElementById("gps-locate-btn");
-    if(!navigator.geolocation) {
-      showError("Geolocation is not supported by your browser.");
-      return;
-    }
     btn.textContent = "⊕ Locating…";
     btn.style.opacity = "0.6";
     btn.disabled = true;
 
+    // Demo deployments only (CFG.DEMO_RANDOM_LOCATION) — real GPS won't
+    // resolve anywhere meaningful for someone demoing from outside the
+    // constituency, so fake a plausible position instead. A short delay
+    // keeps the button's "Locating…" state visible rather than jumping
+    // instantly, which reads as broken rather than as a location fix.
+    if(CFG.DEMO_RANDOM_LOCATION) {
+      const p = getDemoRandomPoint();
+      if(!p) {
+        btn.textContent = "⊕ Find my ward"; btn.style.opacity = "1"; btn.disabled = false;
+        showError("No road data loaded yet — try again in a moment.");
+        return;
+      }
+      setTimeout(()=>handleLocatedPosition(p.lat, p.lon, btn), 500);
+      return;
+    }
+
+    if(!navigator.geolocation) {
+      showError("Geolocation is not supported by your browser.");
+      btn.textContent = "⊕ Find my ward"; btn.style.opacity = "1"; btn.disabled = false;
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-
-        // Find the ward whose nearest mapped road is actually closest to
-        // where you are standing, rather than the ward whose roads are on
-        // average nearest overall.
-        const nearest = findNearestWardToPoint(lat, lon);
-        const bestWard = nearest ? nearest.ward : null;
-
-        if(bestWard) {
-          Object.keys(wardCounts).forEach(w => {
-            if(w === bestWard) activeWards.add(w);
-            else activeWards.delete(w);
-          });
-          buildWardList(document.querySelector(".ward-search").value);
-          renderLines();
-          updateStats();
-        }
-
-        if(gpsMarker) map.removeLayer(gpsMarker);
-        gpsMarker = L.circleMarker([lat, lon], {
-          radius: 8, color: "#fff", fillColor: "#4f8ef7",
-          fillOpacity: 1, weight: 2, interactive: true
-        }).addTo(map)
-          .bindPopup(bestWard
-            ? `<div class="popup-street">You are here</div><div class="popup-ward">${escHtml(bestWard)}</div>`
-            : `<div class="popup-street">You are here</div>`)
-          .openPopup();
-
-        map.setView([lat, lon], Math.max(map.getZoom(), 14));
-        if(isMobile()) closeSidebar();
-
-        btn.textContent = bestWard ? `⊕ ${bestWard}` : "⊕ Find my ward";
-        btn.style.opacity = "1";
-        btn.disabled = false;
-      },
+      pos => handleLocatedPosition(pos.coords.latitude, pos.coords.longitude, btn),
       err => {
         btn.textContent = "⊕ Find my ward";
         btn.style.opacity = "1";
@@ -1874,6 +1878,41 @@
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  }
+
+  function handleLocatedPosition(lat, lon, btn) {
+    // Find the ward whose nearest mapped road is actually closest to
+    // where you are standing, rather than the ward whose roads are on
+    // average nearest overall.
+    const nearest = findNearestWardToPoint(lat, lon);
+    const bestWard = nearest ? nearest.ward : null;
+
+    if(bestWard) {
+      Object.keys(wardCounts).forEach(w => {
+        if(w === bestWard) activeWards.add(w);
+        else activeWards.delete(w);
+      });
+      buildWardList(document.querySelector(".ward-search").value);
+      renderLines();
+      updateStats();
+    }
+
+    if(gpsMarker) map.removeLayer(gpsMarker);
+    gpsMarker = L.circleMarker([lat, lon], {
+      radius: 8, color: "#fff", fillColor: "#4f8ef7",
+      fillOpacity: 1, weight: 2, interactive: true
+    }).addTo(map)
+      .bindPopup(bestWard
+        ? `<div class="popup-street">You are here</div><div class="popup-ward">${escHtml(bestWard)}</div>`
+        : `<div class="popup-street">You are here</div>`)
+      .openPopup();
+
+    map.setView([lat, lon], Math.max(map.getZoom(), 14));
+    if(isMobile()) closeSidebar();
+
+    btn.textContent = bestWard ? `⊕ ${bestWard}` : "⊕ Find my ward";
+    btn.style.opacity = "1";
+    btn.disabled = false;
   }
 
   // ── Live location tracking ───────────────────────────────────────────────────
