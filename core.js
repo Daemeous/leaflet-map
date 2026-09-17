@@ -67,6 +67,27 @@
   // edits will be silently rejected server-side despite the UI allowing them.
   const DISABLE_AUTH_CHECK = CFG.DISABLE_AUTH_CHECK === true;
 
+  // Apps Script's exec URL redirects through script.googleusercontent.com/
+  // .../echo to deliver the real response, and that echo hop intermittently
+  // comes back as a bare 404 with no CORS headers (a Google-side flake, not
+  // anything our script or client code did wrong — reproduced directly with
+  // curl: identical request, identical body, succeeds most of the time and
+  // occasionally 404s). The browser reports that as "blocked by CORS policy"
+  // on the original request because it can't read a response with no
+  // Access-Control-Allow-Origin header, which is what shows up in the
+  // console during sign-in. A short retry clears it almost every time.
+  async function postAppsScript(payload, retries = 2) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) });
+        return await res.json();
+      } catch (e) {
+        if (attempt >= retries) throw e;
+        await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+  }
+
   // ── Status definitions ────────────────────────────────────────────────────────
   const STATUSES = CFG.STATUSES || [
     { key:"complete",   sheetValue:"Complete",    label:"Complete",    cls:"opt-complete",   popupCls:"ps-complete",   colour:"#3ecf6e", weight:5 },
@@ -140,10 +161,23 @@
     appleIcon.href = `data:image/png;base64,${PWA_APPLE_ICON}`;
     document.head.appendChild(appleIcon);
 
+    // Also covers the plain favicon request every browser makes on load —
+    // no separate favicon.ico to copy into every deployment either.
+    const favicon = document.createElement("link");
+    favicon.rel = "icon";
+    favicon.href = `data:image/png;base64,${PWA_ICON_192}`;
+    document.head.appendChild(favicon);
+
     // iOS has no install-prompt API — these are what make "Add to Home
     // Screen" behave like an installed app (standalone chrome, correct
     // title/icon) instead of just bookmarking the page.
-    [["apple-mobile-web-app-capable","yes"],
+    // mobile-web-app-capable is the standardised replacement for Apple's
+    // original apple-mobile-web-app-capable meta tag; Chrome/Android now
+    // wants the former (and warns about the latter being deprecated), while
+    // iOS Safari still only honours the apple- prefixed ones — both are
+    // injected so install-to-home-screen keeps working on both platforms.
+    [["mobile-web-app-capable","yes"],
+     ["apple-mobile-web-app-capable","yes"],
      ["apple-mobile-web-app-status-bar-style","black-translucent"],
      ["apple-mobile-web-app-title", CFG.TITLE || "Leafleting"]].forEach(([name,content])=>{
       const m=document.createElement("meta"); m.name=name; m.content=content; document.head.appendChild(m);
@@ -390,7 +424,7 @@
     if(!myPendingByRow.size) return;
     const rows=[...myPendingByRow.entries()].map(([rowIdx,p])=>({rowIndex:rowIdx,field:p.field}));
     try{
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingStatus",rows})})).json();
+      const data=await postAppsScript({action:"pendingStatus",rows});
       if(!data.ok) return;
       let changed=false;
       rows.forEach(r=>{
@@ -460,7 +494,7 @@
       const item = offlineQueue[i];
       let data;
       try {
-        data = await (await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...item.payload,...tp})})).json();
+        data = await postAppsScript({...item.payload,...tp});
       } catch(e) { break; } // still offline — this one and the rest stay queued
       if(data.ok) {
         syncedAny=true;
@@ -1479,9 +1513,16 @@
         Sign in with Google
       </button>`;
   }
+  let googleIdInitialised = false;
   function triggerSignIn() {
     if(typeof google==="undefined"||!google.accounts){showEditMsg(pendingEdit?.editDiv,"Google Sign-In not loaded.","error");return;}
-    google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:onGoogleSignIn,auto_select:true,cancel_on_tap_outside:false});
+    // initialize() only needs calling once per page load — calling it again
+    // on every retry re-registers the callback and triggers Google's own
+    // "called multiple times" console warning for no benefit.
+    if(!googleIdInitialised){
+      google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:onGoogleSignIn,auto_select:true,cancel_on_tap_outside:false});
+      googleIdInitialised = true;
+    }
     google.accounts.id.prompt(n=>{if(n.isNotDisplayed()||n.isSkippedMoment())useOAuthPopupFallback();});
   }
   function useOAuthPopupFallback() {
@@ -1502,7 +1543,7 @@
     if(editDiv) showEditMsg(editDiv,"Checking authorisation…","");
     try{
       const payload=idToken?{action:"verify",idToken}:{action:"verify",accessToken,email:emailHint};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify(payload)})).json();
+      const data=await postAppsScript(payload);
       if(!data.ok){if(editDiv)showEditMsg(editDiv,data.error||"Verification failed.","error");return;}
       authToken=idToken||accessToken; authTokenType=idToken?"idToken":"accessToken";
       authEmail=data.email||emailHint; authExpiry=Date.now()+55*60*1000;
@@ -1588,7 +1629,7 @@
     }
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...payload,...tp})})).json();
+      const data=await postAppsScript({...payload,...tp});
       if(!data.ok){showEditMsg(editDiv,data.error||"Save failed.","error");return;}
       applyStatusLocally(rowIdx,sheetValue);
       showEditMsg(editDiv,`Saved as "${getStatus(sheetValue).label}"`,"success");
@@ -1625,7 +1666,7 @@
     }
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({...payload,...tp})})).json();
+      const data=await postAppsScript({...payload,...tp});
       if(!data.ok){showEditMsg(editDiv,data.error||"Submit failed.","error");return;}
       applyProposalLocally(rowIdx,sheetValue);
       showEditMsg(editDiv,`Suggested "${getStatus(sheetValue).label}" — awaiting review`,"success");
@@ -1655,8 +1696,7 @@
     }
     renderAdminModal("loading");
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"history",...tp})})
-      .then(r=>r.json())
+    postAppsScript({action:"history",...tp})
       .then(data=>{
         if(!data.ok) { renderAdminModal("error", data.error||"Failed to load history"); return; }
         renderAdminModal("list", null, data.editors);
@@ -2003,8 +2043,7 @@
     if(statusEl) statusEl.textContent = "Reverting…";
     if(btn) btn.disabled = true;
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"revert",targetEditor:targetEmail,...tp})})
-      .then(r=>r.json())
+    postAppsScript({action:"revert",targetEditor:targetEmail,...tp})
       .then(data=>{
         if(!data.ok) {
           if(statusEl) statusEl.textContent = "Error: "+(data.error||"Unknown error");
@@ -2033,8 +2072,7 @@
   function refreshPendingCount() {
     if(!tokenIsValid()||!authAuthorised||DISABLE_AUTH_CHECK) return;
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingList",...tp})})
-      .then(r=>r.json())
+    postAppsScript({action:"pendingList",...tp})
       .then(data=>{ if(data.ok) updatePendingCountBadge(data.items.length); })
       .catch(()=>{});
   }
@@ -2047,8 +2085,7 @@
     closePendingPreview(); // opening/reopening the list always supersedes any road preview
     renderPendingModal("loading");
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingList",...tp})})
-      .then(r=>r.json())
+    postAppsScript({action:"pendingList",...tp})
       .then(data=>{
         if(!data.ok){renderPendingModal("error",data.error||"Failed to load pending changes");return;}
         updatePendingCountBadge(data.items.length);
@@ -2131,8 +2168,7 @@
 
   function reviewPendingItem(item, decision) {
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"pendingReview",pendingRow:item.pendingRow,decision,...tp})})
-      .then(r=>r.json())
+    postAppsScript({action:"pendingReview",pendingRow:item.pendingRow,decision,...tp})
       .then(data=>{
         if(!data.ok){showError(data.error||"Review failed.");return;}
         if(decision==="approve") {
@@ -2177,8 +2213,7 @@
   function banPendingSubmitter(item) {
     if(!confirm(`Ban ${item.submitter} from submitting further changes? Their other pending submissions will be denied too.`)) return;
     const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-    fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({action:"ban",targetEmail:item.submitter,...tp})})
-      .then(r=>r.json())
+    postAppsScript({action:"ban",targetEmail:item.submitter,...tp})
       .then(data=>{
         if(!data.ok){showError(data.error||"Ban failed.");return;}
         openPendingPanel();
@@ -2584,9 +2619,9 @@
     if(statusEl) statusEl.textContent="Saving…";
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({
+      const data=await postAppsScript({
         action:"partial",rowIndex:drawRoad._rowIdx,partialGeometry:encoded,...tp
-      })})).json();
+      });
       if(!data.ok){if(statusEl)statusEl.textContent="Save failed: "+(data.error||"");return;}
       drawRoad.partial_geometry=encoded;
       if(statusEl) statusEl.textContent="Saved ✓";
@@ -2599,9 +2634,9 @@
     if(statusEl) statusEl.textContent="Clearing…";
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
-      const data=await(await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({
+      const data=await postAppsScript({
         action:"partial",rowIndex:drawRoad._rowIdx,partialGeometry:"-",...tp
-      })})).json();
+      });
       if(!data.ok){if(statusEl)statusEl.textContent="Clear failed: "+(data.error||"");return;}
       drawRoad.partial_geometry="-";
       if(statusEl) statusEl.textContent="Cleared ✓";
