@@ -20,6 +20,7 @@ This repo is the **primary deployment** (Stafford) and also hosts the shared fro
 | Shipley + Keighley and Ilkley | https://daemeous.github.io/shipley/ |
 | Bassetlaw | https://daemeous.github.io/bassetlaw/ |
 | East Grinstead and Uckfield | https://daemeous.github.io/east-grinstead-uckfield/ |
+| Dunstable and Leighton Buzzard | https://daemeous.github.io/dunstable-leighton-buzzard/ |
 
 Related project — **[Pothole Watch](https://github.com/Daemeous/stafford-potholes)** (citizen pothole reporting, same visual style, separate Sheet/Apps Script backend):
 
