@@ -76,14 +76,25 @@
   // on the original request because it can't read a response with no
   // Access-Control-Allow-Origin header, which is what shows up in the
   // console during sign-in. A short retry clears it almost every time.
-  async function postAppsScript(payload, retries = 2) {
+  // A request that's hanging (Apps Script cold start, a slow tokeninfo
+  // round-trip, spreadsheet lock contention) used to leave the browser just
+  // sitting on a bare `await fetch` with nothing to time it out — a 60s
+  // response meant a 60s wait with no retry. AbortController on a per-attempt
+  // timer turns "still not back after TIMEOUT_MS" into the same retryable
+  // failure as the network error this function already handled.
+  const APPS_SCRIPT_TIMEOUT_MS = 12000;
+  async function postAppsScript(payload, retries = 2, timeoutMs = APPS_SCRIPT_TIMEOUT_MS) {
     for (let attempt = 0; ; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const res = await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) });
+        const res = await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(payload), signal: controller.signal });
         return await res.json();
       } catch (e) {
         if (attempt >= retries) throw e;
         await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+      } finally {
+        clearTimeout(timer);
       }
     }
   }
@@ -386,6 +397,54 @@
       const entry=renderedLayers.get(k);
       if(entry){entry.layers.forEach(l=>{if(layerGroups[entry.ward])layerGroups[entry.ward].removeLayer(l);});renderedLayers.delete(k);}
     });
+  }
+
+  // ── Optimistic "saving" preview ─────────────────────────────────────────────
+  // A road-status save round-trips to Apps Script (verify token + write +
+  // changelog), which can take a few seconds even when everything's healthy.
+  // Rather than leave the road showing its OLD colour until that resolves,
+  // draw a translucent dashed overlay in the NEW colour immediately, on top
+  // of the real line, and only commit (or discard) it once the save settles.
+  // A safety-net timer clears it even if some call site forgets to, so a bug
+  // elsewhere can't leave a road stuck "saving" forever.
+  const optimisticSaves = new Map(); // rowIdx -> { layers, ward, timer }
+  const OPTIMISTIC_SAVE_MAX_MS = 20000;
+
+  function showOptimisticSave(rowIdx, sheetValue) {
+    clearOptimisticSave(rowIdx);
+    const road = allRoads.find(r => r._rowIdx === rowIdx);
+    if (!road) return;
+    const ward = (road.Ward || "").trim();
+    const grp = layerGroups[ward];
+    if (!grp) return;
+
+    const colour = colourFor(sheetValue);
+    const layers = [];
+    const segs = parseWKT(road.road_geometry);
+    if (segs.length > 0) {
+      segs.forEach(pts => {
+        const l = L.polyline(pts, { color: colour, weight: weightFor(sheetValue) + 7, opacity: 0.45, dashArray: "3 7", interactive: false });
+        l.addTo(grp);
+        layers.push(l);
+      });
+    } else {
+      const lat = parseFloat(road["@lat"]), lon = parseFloat(road["@lon"]);
+      if (!isNaN(lat) && !isNaN(lon)) {
+        const m = L.circleMarker([lat, lon], { radius: 10, color: colour, fillColor: colour, fillOpacity: 0.35, weight: 2, opacity: 0.6, dashArray: "2 4", interactive: false });
+        m.addTo(grp);
+        layers.push(m);
+      }
+    }
+    const timer = setTimeout(() => clearOptimisticSave(rowIdx), OPTIMISTIC_SAVE_MAX_MS);
+    optimisticSaves.set(rowIdx, { layers, ward, timer });
+  }
+
+  function clearOptimisticSave(rowIdx) {
+    const entry = optimisticSaves.get(rowIdx);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    entry.layers.forEach(l => { if (layerGroups[entry.ward]) layerGroups[entry.ward].removeLayer(l); });
+    optimisticSaves.delete(rowIdx);
   }
   // A pending entry only counts as "mine" — and therefore only gets
   // rendered — while signed in as the exact email that submitted it.
@@ -1627,14 +1686,17 @@
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
       return;
     }
+    showOptimisticSave(rowIdx,sheetValue);
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
       const data=await postAppsScript({...payload,...tp});
+      clearOptimisticSave(rowIdx);
       if(!data.ok){showEditMsg(editDiv,data.error||"Save failed.","error");return;}
       applyStatusLocally(rowIdx,sheetValue);
       showEditMsg(editDiv,`Saved as "${getStatus(sheetValue).label}"`,"success");
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
     }catch(e){
+      clearOptimisticSave(rowIdx);
       applyStatusLocally(rowIdx,sheetValue);
       queueOfflineWrite("update",payload,rowIdx);
       showEditMsg(editDiv,"No connection — saved offline, will sync automatically","success");
@@ -1664,14 +1726,17 @@
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
       return;
     }
+    showOptimisticSave(rowIdx,sheetValue);
     try{
       const tp=authTokenType==="idToken"?{idToken:authToken}:{accessToken:authToken};
       const data=await postAppsScript({...payload,...tp});
+      clearOptimisticSave(rowIdx);
       if(!data.ok){showEditMsg(editDiv,data.error||"Submit failed.","error");return;}
       applyProposalLocally(rowIdx,sheetValue);
       showEditMsg(editDiv,`Suggested "${getStatus(sheetValue).label}" — awaiting review`,"success");
       setTimeout(()=>{if(editDiv)editDiv.style.display="none";},1800);
     }catch(e){
+      clearOptimisticSave(rowIdx);
       applyProposalLocally(rowIdx,sheetValue);
       queueOfflineWrite("propose",payload,rowIdx);
       showEditMsg(editDiv,"No connection — suggestion saved offline, will submit automatically","success");
