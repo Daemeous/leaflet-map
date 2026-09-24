@@ -42,6 +42,14 @@
   const APPS_SCRIPT_URL  = CFG.APPS_SCRIPT_URL;
   const PARTIAL_ZOOM_THRESHOLD = 14;
   const LS_SUFFIX   = CFG.LS_SUFFIX || SHEET_GID;
+  // Divides the published Data CSV into trackable roads (above) and roads
+  // with zero residences kept only so route-planner can route through them
+  // (below) — must match ROUTE_PLANNER_MARKER in build_tracker.py and
+  // leaflet-map.gs.txt exactly. A sheet with no such row (every deployment
+  // built before this existed) behaves exactly as before: everything is
+  // treated as trackable.
+  const ROUTE_PLANNER_MARKER = "###ROUTE_PLANNER_ONLY_BELOW###";
+  const ROUTE_ONLY_COLOUR = "#ff1493"; // hot pink
   const LS_DATA     = `leafmap_data_v3_${LS_SUFFIX}`;
   const LS_CHECKSUM = `leafmap_checksum_v3_${LS_SUFFIX}`;
   const LS_TIME     = `leafmap_time_${LS_SUFFIX}`;
@@ -247,6 +255,7 @@
         </div>
         <div class="filter-section" style="margin-top:auto;display:none;" id="admin-panel-section">
           <button class="ward-all-btn" id="pending-panel-link" onclick="openPendingPanel()" style="border-style:solid;border-color:var(--yellow);color:var(--yellow);margin-bottom:8px;">⏳ Pending changes<span class="toggle-count" id="pending-count" style="margin-left:6px;"></span></button>
+          <button class="ward-all-btn" id="route-only-toggle-btn" onclick="toggleRouteOnlyRoads()" style="border-style:solid;border-color:${ROUTE_ONLY_COLOUR};color:${ROUTE_ONLY_COLOUR};margin-bottom:8px;">🩷 Route-only roads: Off (0)</button>
           <button class="ward-all-btn" id="admin-panel-link" onclick="openAdminPanel()" style="border-color:var(--red);color:var(--red);">⚠ Editor history / revert</button>
         </div>
         <a href="${HELP_URL}" target="_blank" rel="noopener" style="display:block;text-align:center;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.06em;color:var(--muted);text-decoration:none;padding:9px;border:1px solid var(--border);border-radius:6px;">📖 User Guide</a>
@@ -291,6 +300,13 @@
   let allRoads     = [];
   let layerGroups  = {};
   let partialLayerGroup = L.layerGroup().addTo(map);
+  // Roads parsed from below ROUTE_PLANNER_MARKER — never rendered by
+  // default, never counted in stats/wardCounts/Dashboard-derived numbers,
+  // and never sent to the Apps Script for a status edit. Purely an
+  // admin-toggleable visual aid.
+  let routeOnlyRoads     = [];
+  let showRouteOnlyRoads = false;
+  let routeOnlyLayerGroup = L.layerGroup().addTo(map);
   let pendingPreviewLayer = L.layerGroup().addTo(map);
   let activeStatus = new Set(STATUSES.map(s=>s.key));
   let activeWards  = new Set();
@@ -1050,6 +1066,54 @@
     renderAllPartials();
   }
 
+  // ── Route-planner-only roads (admin toggle) ─────────────────────────────────
+  // Simple, self-contained overlay — no diffing against renderedLayers, no
+  // ward/status filtering, no click-to-edit. These roads aren't part of the
+  // trackable dataset at all, just a visual aid for admins checking what's
+  // hidden below ROUTE_PLANNER_MARKER.
+  function routeOnlyPopupHtml(road) {
+    return `
+      <div class="popup-street">${escHtml(road.Street)}</div>
+      <div class="popup-ward">${escHtml(road.Ward||"")}</div>
+      <div class="popup-meta"><span class="popup-residences" style="opacity:.75">Route-planning only — no residences, not tracked</span></div>
+    `;
+  }
+
+  function renderRouteOnlyRoads() {
+    routeOnlyLayerGroup.clearLayers();
+    if(!showRouteOnlyRoads) return;
+    routeOnlyRoads.forEach(road=>{
+      const segs=parseWKT(road.road_geometry);
+      if(segs.length>0) {
+        segs.forEach(pts=>{
+          L.polyline(pts,{color:ROUTE_ONLY_COLOUR,weight:4,opacity:0.9,dashArray:"2 6"})
+            .bindPopup(routeOnlyPopupHtml(road))
+            .addTo(routeOnlyLayerGroup);
+        });
+      } else {
+        const lat=parseFloat(road["@lat"]),lon=parseFloat(road["@lon"]);
+        if(!isNaN(lat)&&!isNaN(lon)) {
+          L.circleMarker([lat,lon],{radius:5,color:ROUTE_ONLY_COLOUR,fillColor:ROUTE_ONLY_COLOUR,fillOpacity:0.9,weight:1.5})
+            .bindPopup(routeOnlyPopupHtml(road))
+            .addTo(routeOnlyLayerGroup);
+        }
+      }
+    });
+  }
+
+  function updateRouteOnlyButtonLabel() {
+    const btn=document.getElementById("route-only-toggle-btn");
+    if(!btn) return;
+    btn.textContent=`🩷 Route-only roads: ${showRouteOnlyRoads?"On":"Off"} (${routeOnlyRoads.length})`;
+    btn.style.background=showRouteOnlyRoads?"rgba(255,20,147,0.15)":"";
+  }
+
+  function toggleRouteOnlyRoads() {
+    showRouteOnlyRoads=!showRouteOnlyRoads;
+    renderRouteOnlyRoads();
+    updateRouteOnlyButtonLabel();
+  }
+
   // ── Stats ─────────────────────────────────────────────────────────────────────
   function computeEstimatedResidencesServed() {
     let served=0;
@@ -1191,9 +1255,19 @@
 
   // ── Ingest ─────────────────────────────────────────────────────────────────────
   function ingestRows(rows,checksum,timestamp,isFirstLoad) {
+    // Split off everything below ROUTE_PLANNER_MARKER before any of the
+    // normal trackable-road processing sees it — those rows never touch
+    // allRoads, stats, wardCounts, or Dashboard-derived numbers, and never
+    // become editable (no _rowIdx assigned from the real trackable
+    // numbering). Falls back to treating the whole sheet as trackable when
+    // no marker row is present (every pre-existing deployment).
+    const markerIdx=rows.findIndex(r=>(r.Street||"").trim()===ROUTE_PLANNER_MARKER);
+    const trackableRows=markerIdx===-1?rows:rows.slice(0,markerIdx);
+    routeOnlyRoads=(markerIdx===-1?[]:rows.slice(markerIdx+1)).filter(r=>r.Street&&r.Street.trim());
+
     const prevWards=new Set(activeWards);
     const newByIdx=new Map();
-    rows.filter(r=>r.Street&&r.Street.trim()).forEach((r,i)=>{
+    trackableRows.filter(r=>r.Street&&r.Street.trim()).forEach((r,i)=>{
       r._rowIdx=i+2;
       newByIdx.set(r._rowIdx,r);
     });
@@ -1204,8 +1278,8 @@
     // "no roads" state. The checksum can't catch this on its own since it's
     // built only from status counts, so flag it loudly instead of quietly
     // accepting an empty dataset.
-    if(newByIdx.size===0 && rows.length>0) {
-      showError("Sheet returned 0 valid roads out of "+rows.length+" rows — check that the 'Street' column header is intact.");
+    if(newByIdx.size===0 && trackableRows.length>0) {
+      showError("Sheet returned 0 valid roads out of "+trackableRows.length+" rows — check that the 'Street' column header is intact.");
     }
 
     if(isFirstLoad) {
@@ -1246,10 +1320,11 @@
           changed=true;
         }
       });
-      if(!changed){lastChecksum=checksum;lastLoadTime=timestamp;setSyncState("fresh","Up to date · "+formatTime(lastLoadTime));return;}
+      if(!changed){lastChecksum=checksum;lastLoadTime=timestamp;setSyncState("fresh","Up to date · "+formatTime(lastLoadTime));renderRouteOnlyRoads();updateRouteOnlyButtonLabel();return;}
     }
 
     buildWardList(); updateCountBadges(); renderLines(); updateStats(); buildRoadSearchIndex();
+    renderRouteOnlyRoads(); updateRouteOnlyButtonLabel();
     if(isFirstLoad) {
       const pts=allRoads.filter(r=>parseFloat(r["@lat"])&&parseFloat(r["@lon"])).map(r=>[parseFloat(r["@lat"]),parseFloat(r["@lon"])]);
       if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.05));
@@ -2736,6 +2811,7 @@
   window.locateAndFilterWard = locateAndFilterWard;
   window.toggleSidebar = toggleSidebar;
   window.toggleLiveTracking = toggleLiveTracking;
+  window.toggleRouteOnlyRoads = toggleRouteOnlyRoads;
 
   // ── Boot ──────────────────────────────────────────────────────────────────────
   (async function boot() {
