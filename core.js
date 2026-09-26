@@ -50,6 +50,13 @@
   // treated as trackable.
   const ROUTE_PLANNER_MARKER = "###ROUTE_PLANNER_ONLY_BELOW###";
   const ROUTE_ONLY_COLOUR = "#ff1493"; // hot pink
+  // A road name ending in this (set by split_home_gaps.py) is a homeless
+  // stretch trimmed out of an otherwise-populated road, not a genuinely
+  // all-empty road (bridge/farm track/etc) — rendered grey instead of pink
+  // so a canvasser can tell "recorded as empty" apart from "always empty".
+  const GAP_SUFFIX = " [gap]";
+  const GAP_COLOUR = "#888888"; // grey
+  function isGapRoad(road) { return (road.Street||"").endsWith(GAP_SUFFIX); }
   const LS_DATA     = `leafmap_data_v3_${LS_SUFFIX}`;
   const LS_CHECKSUM = `leafmap_checksum_v3_${LS_SUFFIX}`;
   const LS_TIME     = `leafmap_time_${LS_SUFFIX}`;
@@ -1072,10 +1079,13 @@
   // trackable dataset at all, just a visual aid for admins checking what's
   // hidden below ROUTE_PLANNER_MARKER.
   function routeOnlyPopupHtml(road) {
+    const note = isGapRoad(road)
+      ? "Recorded empty stretch — trimmed from a populated road, not tracked"
+      : "Route-planning only — no residences, not tracked";
     return `
       <div class="popup-street">${escHtml(road.Street)}</div>
       <div class="popup-ward">${escHtml(road.Ward||"")}</div>
-      <div class="popup-meta"><span class="popup-residences" style="opacity:.75">Route-planning only — no residences, not tracked</span></div>
+      <div class="popup-meta"><span class="popup-residences" style="opacity:.75">${note}</span></div>
     `;
   }
 
@@ -1083,17 +1093,18 @@
     routeOnlyLayerGroup.clearLayers();
     if(!showRouteOnlyRoads) return;
     routeOnlyRoads.forEach(road=>{
+      const colour = isGapRoad(road) ? GAP_COLOUR : ROUTE_ONLY_COLOUR;
       const segs=parseWKT(road.road_geometry);
       if(segs.length>0) {
         segs.forEach(pts=>{
-          L.polyline(pts,{color:ROUTE_ONLY_COLOUR,weight:4,opacity:0.9,dashArray:"2 6"})
+          L.polyline(pts,{color:colour,weight:4,opacity:0.9,dashArray:"2 6"})
             .bindPopup(routeOnlyPopupHtml(road))
             .addTo(routeOnlyLayerGroup);
         });
       } else {
         const lat=parseFloat(road["@lat"]),lon=parseFloat(road["@lon"]);
         if(!isNaN(lat)&&!isNaN(lon)) {
-          L.circleMarker([lat,lon],{radius:5,color:ROUTE_ONLY_COLOUR,fillColor:ROUTE_ONLY_COLOUR,fillOpacity:0.9,weight:1.5})
+          L.circleMarker([lat,lon],{radius:5,color:colour,fillColor:colour,fillOpacity:0.9,weight:1.5})
             .bindPopup(routeOnlyPopupHtml(road))
             .addTo(routeOnlyLayerGroup);
         }
