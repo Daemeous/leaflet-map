@@ -121,21 +121,30 @@
     { key:"planned",    sheetValue:"Planned",     label:"Planned",     cls:"opt-planned",    popupCls:"ps-planned",    colour:"#4f8ef7", weight:4 },
     { key:"notstarted", sheetValue:"Not_Started", label:"Not Started", cls:"opt-notstarted", popupCls:"ps-notstarted", colour:"#f75f5f", weight:4 },
   ];
+  // Opt-in 5th status for roads deliberately out of scope (e.g. wards in a
+  // different constituency kept in the sheet for later) — counts as 0%
+  // served and is left out of the residences total, so it doesn't drag the
+  // campaign's % reached down. Needs the deployment's Apps Script to accept
+  // "Inactive" too (leaflet-map.gs.txt does, from 2026-10-26).
+  if(CFG.ENABLE_INACTIVE && !CFG.STATUSES)
+    STATUSES.push({ key:"inactive", sheetValue:"Inactive", label:"Inactive", cls:"opt-inactive", popupCls:"ps-inactive", colour:"#9aa0a6", weight:3 });
+  const STATUS_DOT_COLOURS = { complete:"green", inprogress:"yellow", planned:"blue", notstarted:"red", inactive:"grey" };
   function getStatus(v) {
     const norm = (v||"").trim().toLowerCase().replace(/[\s_]+/g,"");
-    return STATUSES.find(s=>s.sheetValue.toLowerCase().replace(/_/g,"")===norm)||STATUSES[3];
+    return STATUSES.find(s=>s.sheetValue.toLowerCase().replace(/_/g,"")===norm)||STATUSES.find(s=>s.key==="notstarted")||STATUSES[3];
   }
+  function isInactive(r) { return statusKey(r.Status)==="inactive"; }
   function statusKey(v)  { return getStatus(v).key; }
   function colourFor(v)  { return getStatus(v).colour; }
   function weightFor(v)  { return getStatus(v).weight; }
 
   // ── DOM injection ────────────────────────────────────────────────────────────
   function buildStatusToggles() {
-    return STATUSES.map((s,i)=>`<button class="status-toggle active s-${s.key}" data-status="${s.key}" onclick="toggleStatus(this)"><span class="status-dot dot-${["green","yellow","blue","red"][i % 4]}"></span>${escHtml(s.label)}<span class="toggle-count" id="cnt-${s.key}">0</span></button>`).join("");
+    return STATUSES.map((s,i)=>`<button class="status-toggle active s-${s.key}" data-status="${s.key}" onclick="toggleStatus(this)"><span class="status-dot dot-${STATUS_DOT_COLOURS[s.key]||["green","yellow","blue","red"][i % 4]}"></span>${escHtml(s.label)}<span class="toggle-count" id="cnt-${s.key}">0</span></button>`).join("");
   }
   function buildStatsTop() {
     const colours = ["green","yellow","blue","red","purple"];
-    return STATUSES.map((s,i)=>`<div class="stat"><div class="stat-num ${colours[i % colours.length]}" id="stat-${s.key}">0</div><div class="stat-label">${escHtml(s.label)}</div></div>`).join("");
+    return STATUSES.map((s,i)=>`<div class="stat"><div class="stat-num ${STATUS_DOT_COLOURS[s.key]||colours[i % colours.length]}" id="stat-${s.key}">0</div><div class="stat-label">${escHtml(s.label)}</div></div>`).join("");
   }
 
   // ── PWA: manifest, iOS meta tags, service worker ────────────────────────────
@@ -857,7 +866,7 @@
   function computePartialEstimate(road) {
     const sk=statusKey(road.Status);
     if(sk==="complete") return 1.0;
-    if(sk==="notstarted"||sk==="planned") return 0.0;
+    if(sk==="notstarted"||sk==="planned"||sk==="inactive") return 0.0;
     const pgStr=(road.partial_geometry||"").trim();
     if(!pgStr||pgStr==="-") return 0.3;
     const segs = parseWKT(road.road_geometry);
@@ -1142,7 +1151,7 @@
     const statsBottom=document.getElementById("stats-bottom");
     if(!resEl) return;
     let total=0;
-    allRoads.forEach(r=>{total+=getResidences(r);});
+    allRoads.forEach(r=>{if(!isInactive(r)) total+=getResidences(r);});
     if(total<=0) { if(statsBottom) statsBottom.style.display="none"; return; }
     if(statsBottom) statsBottom.style.display="";
     const served=residencesServedTotal??computeEstimatedResidencesServed();
@@ -1300,10 +1309,21 @@
       layerGroups={}; wardCounts={}; activeWards=new Set();
       allRoads=[...newByIdx.values()];
       allRoads.forEach(r=>{const w=(r.Ward||"Unknown").trim();wardCounts[w]=(wardCounts[w]||0)+1;});
+      // DEFAULT_WARDS narrows the very first page load to a campaign's
+      // current focus (matched case-insensitively, " Ward" suffix optional);
+      // a reload keeps whatever the user has selected since. Falls back to
+      // every ward if none of the names match.
+      const normWard=w=>w.toLowerCase().replace(/\s+ward$/,"").trim();
+      const defaultWards=new Set((CFG.DEFAULT_WARDS||[]).map(normWard));
+      const useDefault=!prevWards.size&&Object.keys(wardCounts).some(w=>defaultWards.has(normWard(w)));
       Object.keys(wardCounts).forEach(w=>{
         layerGroups[w]=L.layerGroup().addTo(map);
-        if(!prevWards.size||prevWards.has(w)) activeWards.add(w);
+        if(useDefault ? defaultWards.has(normWard(w)) : (!prevWards.size||prevWards.has(w))) activeWards.add(w);
       });
+      if(useDefault) {
+        const pts=[...activeWards].flatMap(wardLatLngs);
+        if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1));
+      }
     } else {
       let changed=false;
       allRoads.forEach(existing=>{
