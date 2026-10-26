@@ -323,6 +323,7 @@
   let routeOnlyRoads     = [];
   let showRouteOnlyRoads = false;
   let routeOnlyLayerGroup = L.layerGroup().addTo(map);
+  let gapLayerGroup       = L.layerGroup().addTo(map);
   let pendingPreviewLayer = L.layerGroup().addTo(map);
   let activeStatus = new Set(STATUSES.map(s=>s.key));
   let activeWards  = new Set();
@@ -1030,6 +1031,7 @@
   }
 
   function renderLines() {
+    renderGapRoads();
     const desired=new Map();
     allRoads.forEach(road=>{
       const spec=desiredLayerSpec(road);
@@ -1098,11 +1100,27 @@
     `;
   }
 
+  // Empty stretches trimmed out of populated roads are drawn for everyone
+  // (thin grey, following the ward filter) so a road doesn't look like it
+  // just stops where its houses do — still not trackable or editable.
+  function renderGapRoads() {
+    gapLayerGroup.clearLayers();
+    routeOnlyRoads.forEach(road=>{
+      if(!isGapRoad(road)||!activeWards.has((road.Ward||"").trim())) return;
+      parseWKT(road.road_geometry).forEach(pts=>{
+        L.polyline(pts,{color:GAP_COLOUR,weight:3,opacity:0.8})
+          .bindPopup(routeOnlyPopupHtml(road))
+          .addTo(gapLayerGroup);
+      });
+    });
+  }
+
   function renderRouteOnlyRoads() {
     routeOnlyLayerGroup.clearLayers();
     if(!showRouteOnlyRoads) return;
     routeOnlyRoads.forEach(road=>{
-      const colour = isGapRoad(road) ? GAP_COLOUR : ROUTE_ONLY_COLOUR;
+      if(isGapRoad(road)) return; // always shown by renderGapRoads()
+      const colour = ROUTE_ONLY_COLOUR;
       const segs=parseWKT(road.road_geometry);
       if(segs.length>0) {
         segs.forEach(pts=>{
@@ -1124,7 +1142,7 @@
   function updateRouteOnlyButtonLabel() {
     const btn=document.getElementById("route-only-toggle-btn");
     if(!btn) return;
-    btn.textContent=`🩷 Route-only roads: ${showRouteOnlyRoads?"On":"Off"} (${routeOnlyRoads.length})`;
+    btn.textContent=`🩷 Route-only roads: ${showRouteOnlyRoads?"On":"Off"} (${routeOnlyRoads.filter(r=>!isGapRoad(r)).length})`;
     btn.style.background=showRouteOnlyRoads?"rgba(255,20,147,0.15)":"";
   }
 
