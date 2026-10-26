@@ -1096,7 +1096,7 @@
     return `
       <div class="popup-street">${escHtml(road.Street)}</div>
       <div class="popup-ward">${escHtml(road.Ward||"")}</div>
-      <div class="popup-meta"><span class="popup-residences" style="opacity:.75">${note}</span></div>
+      <div class="popup-note">${note}</div>
     `;
   }
 
@@ -1305,7 +1305,11 @@
 
     const prevWards=new Set(activeWards);
     const newByIdx=new Map();
-    trackableRows.filter(r=>r.Street&&r.Street.trim()).forEach((r,i)=>{
+    // _rowIdx is the real sheet row, so it's taken before skipping blank
+    // rows — a row blanked in place (to retire a road without shifting
+    // every row below it) must not renumber the rest.
+    trackableRows.forEach((r,i)=>{
+      if(!(r.Street&&r.Street.trim())) return;
       r._rowIdx=i+2;
       newByIdx.set(r._rowIdx,r);
     });
