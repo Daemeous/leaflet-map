@@ -23,6 +23,7 @@ This repo is the **primary deployment** (Stafford) and also hosts the shared fro
 | Dunstable and Leighton Buzzard | https://daemeous.github.io/dunstable-leighton-buzzard/ |
 | Stockton North & West | https://daemeous.github.io/stockton-north-west/ |
 | Staffordshire Moorlands | https://daemeous.github.io/staffordshire-moorlands/ |
+| Lewes | https://daemeous.github.io/lewes/ |
 
 Related project — **[Pothole Watch](https://github.com/Daemeous/stafford-potholes)** (citizen pothole reporting, same visual style, separate Sheet/Apps Script backend):
 
